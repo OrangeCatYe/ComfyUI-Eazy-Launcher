@@ -9,8 +9,61 @@ ComfyUI_KK 启动器 —— Python Eel 后端入口
 前端通过 window.eel.xxx() 调用，返回统一结构 { ok, data, error, log }。
 """
 import os
+import queue
 import sys
 import threading
+import time
+
+MAIN_TASKS = queue.Queue()
+_MAIN_STARTED = False
+
+
+def _pump_main_tasks():
+    """主线程泵：持续消费投递过来的任务，保证 tkinter 只在主线程运行。"""
+    while True:
+        fn = MAIN_TASKS.get()
+        try:
+            fn()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _ensure_main_pump():
+    global _MAIN_STARTED
+    if _MAIN_STARTED:
+        return
+    _MAIN_STARTED = True
+    threading.Thread(target=_pump_main_tasks, daemon=True).start()
+
+
+def run_on_main(fn, timeout=600):
+    """
+    把 fn 投递到主线程执行并同步等待结果。
+
+    tkinter 只能在主线程创建 Tk()，而 Eel 的暴露函数运行在
+    gevent/工作线程里，直接在那里弹对话框会挂死或无响应，
+    因此所有原生对话框都必须经此转发。
+    """
+    _ensure_main_pump()
+    box = {}
+
+    def job():
+        try:
+            box["v"] = fn()
+        except Exception as e:  # noqa: BLE001
+            box["e"] = e
+
+    MAIN_TASKS.put(job)
+    waited = 0.0
+    while waited < timeout:
+        if "v" in box or "e" in box:
+            break
+        time.sleep(0.05)
+        waited += 0.05
+    if "e" in box:
+        raise box["e"]
+    return box.get("v")
+
 
 for _stream in ("stdout", "stderr"):
     _s = getattr(sys, _stream, None)
@@ -166,6 +219,12 @@ def env_validate_root(path):
 
 
 @eel.expose
+def env_scan_root(path):
+    """真实扫描一个绝对路径，识别 ComfyUI 内核目录、Python 解释器、插件与模型目录。"""
+    return env_ops.scan_root(path)
+
+
+@eel.expose
 def env_list_dir(path, exts=None, recursive=True):
     return fs_ops.list_dir(path, exts, recursive)
 
@@ -180,13 +239,13 @@ def env_exists(path):
 @eel.expose
 def dialog_pick_file(title="选择文件", filetypes=None):
     """弹出系统原生文件选择框，返回真实绝对路径（取消返回 None）。"""
-    return _tk_pick("file", title, filetypes, multiple=False)
+    return run_on_main(lambda: _tk_pick("file", title, filetypes, multiple=False))
 
 
 @eel.expose
 def dialog_pick_dir(title="选择目录"):
     """弹出系统原生目录选择框，返回真实绝对路径（取消返回 None）。"""
-    return _tk_pick("dir", title, None, multiple=False)
+    return run_on_main(lambda: _tk_pick("dir", title, None, multiple=False))
 
 
 def _tk_pick(kind, title, filetypes, multiple):

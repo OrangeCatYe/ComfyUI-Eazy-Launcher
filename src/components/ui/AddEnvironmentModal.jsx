@@ -3,6 +3,33 @@ import { FolderPlus, FolderOpen, CheckCircle2, AlertTriangle, Terminal, Loader2 
 import { Modal } from './Modal'
 import { Button } from './Button'
 import { scanEnvironmentFromPicker, summarizeScan, emptyScan } from '../../lib/envScan'
+import { isBackend, call, tryCall } from '../../lib/backend'
+
+/*
+ * 后端模式扫描：
+ * Eel 的 app 窗口不支持 File System Access API（showDirectoryPicker 永不返回），
+ * 因此后端可用时必须走「原生目录框 → 后端真实扫描」这条链路。
+ */
+async function scanViaBackend() {
+  const picked = await tryCall('dialog_pick_dir', ['选择 ComfyUI 根目录'])
+  if (!picked || !picked.path) return null
+  const scan = await call('env_scan_root', [picked.path], '扫描目录需要后端支持')
+  return {
+    ok: Boolean(scan?.ok),
+    mode: 'backend',
+    rootName: scan?.rootName || picked.path,
+    comfyRoot: scan?.comfyRoot || picked.path,
+    nested: Boolean(scan?.nested),
+    pythonPath: scan?.pythonPath || '',
+    pythonSource: scan?.pythonSource || '',
+    hasGit: Boolean(scan?.hasGit),
+    pluginCount: scan?.pluginCount || 0,
+    plugins: scan?.plugins || [],
+    modelsDirs: scan?.modelsDirs || [],
+    requirements: scan?.requirements ?? null,
+    reason: scan?.ok ? '' : '未识别到 ComfyUI 内核特征',
+  }
+}
 
 /*
  * 添加本地环境 —— 选择文件夹 → 扫描识别 → 确认导入
@@ -35,7 +62,8 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
     setScanning(true)
     onLog?.({ level: 'cmd', text: '\n>>> 正在等待选择 ComfyUI 根目录...' })
     try {
-      const r = await scanEnvironmentFromPicker()
+      /* 后端模式优先：原生目录框 + 后端真实扫描，避免 Eel 窗口下 API 不可用导致卡死 */
+      const r = isBackend() ? await scanViaBackend() : await scanEnvironmentFromPicker()
       if (!r) {
         /* 用户取消 */
         onLog?.({ level: 'warning', text: '操作已取消。' })
