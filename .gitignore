@@ -5,3 +5,6 @@ dist-package
 .DS_Store
 *.log
 .vite
+
+Release/
+*.zip
