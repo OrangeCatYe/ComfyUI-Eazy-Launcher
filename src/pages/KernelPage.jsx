@@ -3,6 +3,9 @@ import { GitBranch, RefreshCw, Check } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Toolbar, SectionCard, EmptyState } from '../components/ui/Blocks'
 import { Toggle } from '../components/ui/Toggle'
+import { Modal, ConfirmModal } from '../components/ui/Modal'
+import { TextInput } from '../components/ui/Input'
+import { useToast } from '../components/ui/Toast'
 
 /*
  * 内核管理 —— 依据「内核管理.png」
@@ -21,8 +24,24 @@ const TABS = [
   { id: 'commits', label: '开发版 (Commits)' },
 ]
 
-export default function KernelPage({ versions = [], currentVersion, repoUrl, autoInstall, onToggleAutoInstall }) {
+export default function KernelPage({ versions = [], currentVersion, repoUrl, autoInstall, onToggleAutoInstall, onAction }) {
   const [tab, setTab] = useState('releases')
+  /* 切换仓库弹窗 / 切换版本二次确认 / 刷新中状态 */
+  const [repoOpen, setRepoOpen] = useState(false)
+  const [switchTarget, setSwitchTarget] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const { showToast } = useToast()
+
+  const fire = (action, payload) => onAction?.(action, payload)
+
+  /* 刷新列表：终端输出拉取过程 */
+  function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    fire('kernel-refresh')
+    showToast('success', '操作成功', '正在从远程仓库拉取版本列表')
+    setTimeout(() => setRefreshing(false), 1200)
+  }
 
   return (
     <div className="p-6 space-y-5">
@@ -35,12 +54,12 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
               {repoUrl || '未配置仓库地址'}
             </span>
           </div>
-          <Button variant="glass" size="sm">
+          <Button variant="glass" size="sm" onClick={() => setRepoOpen(true)}>
             切换仓库
           </Button>
-          <Button variant="glass" size="sm">
-            <RefreshCw size={13} />
-            刷新列表
+          <Button variant="glass" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? '拉取中...' : '刷新列表'}
           </Button>
           <div className="ml-auto flex items-center gap-3">
             <span className="text-[11px] font-black text-[var(--text-sub)]">当前内核版本</span>
@@ -129,7 +148,7 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
                               当前使用
                             </span>
                           ) : (
-                            <Button variant="glass" size="sm">
+                            <Button variant="glass" size="sm" onClick={() => setSwitchTarget(v)}>
                               切换
                             </Button>
                           )}
@@ -143,6 +162,69 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
           )}
         </div>
       </section>
+
+      {/* 切换仓库 */}
+      <RepoModal
+        open={repoOpen}
+        current={repoUrl}
+        onClose={() => setRepoOpen(false)}
+        onConfirm={(url) => {
+          setRepoOpen(false)
+          fire('kernel-switch-repo', url)
+          showToast('success', '操作成功', `远程仓库已切换为 ${url}`)
+        }}
+      />
+
+      {/* 切换版本二次确认（§6.2：简单取消/确认两按钮） */}
+      <ConfirmModal
+        open={Boolean(switchTarget)}
+        onClose={() => setSwitchTarget(null)}
+        onConfirm={() => {
+          fire('kernel-switch-version', switchTarget?.version)
+          setSwitchTarget(null)
+          showToast('success', '操作成功', '回滚成功（无需安装依赖）')
+        }}
+        title="切换内核版本"
+        message={`确认将内核切换到「${switchTarget?.version || ''}」？切换过程会拉取对应版本并重建依赖。`}
+      />
     </div>
+  )
+}
+
+/* 切换仓库弹窗 */
+function RepoModal({ open, current, onClose, onConfirm }) {
+  const [url, setUrl] = useState('')
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="切换远程仓库"
+      description="输入 ComfyUI 内核的 Git 仓库地址。"
+      size="md"
+      footer={
+        <>
+          <Button variant="glass" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!url.trim()}
+            onClick={() => onConfirm(url.trim())}
+          >
+            确认切换
+          </Button>
+        </>
+      }
+    >
+      <div className="pb-2">
+        <div className="text-[11px] font-black text-[var(--text-sub)] mb-1.5">仓库地址</div>
+        <TextInput
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder={current || 'https://github.com/Comfy-Org/ComfyUI.git'}
+        />
+      </div>
+    </Modal>
   )
 }

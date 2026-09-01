@@ -16,6 +16,7 @@ import {
 import { Button } from '../components/ui/Button'
 import { TextInput } from '../components/ui/Input'
 import { SectionCard, FieldRow } from '../components/ui/Blocks'
+import { pickFile } from '../lib/picker'
 
 /*
  * 环境依赖 —— 依据「环境依赖.png」
@@ -127,7 +128,14 @@ export default function DepsPage({ onAction, logs = [] }) {
             <span className="text-xs text-[var(--text-sub)] truncate flex-1">
               {reqFile || '未选择 requirements.txt 文件'}
             </span>
-            <Button variant="glass" size="sm">
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={async () => {
+                const f = await pickFile('.txt')
+                if (f) setReqFile(f)
+              }}
+            >
               选择文件
             </Button>
           </div>
@@ -186,13 +194,20 @@ export default function DepsPage({ onAction, logs = [] }) {
               onChange={(e) => setLibVersion(e.target.value)}
               className="max-w-[200px]"
             />
-            <Button variant="primary" size="sm">
+            <Button variant="primary" size="sm" onClick={() => fire('installLib', libName)}>
               安装选中
             </Button>
-            <Button variant="danger" size="sm">
+            <Button variant="danger" size="sm" onClick={() => fire('uninstallLib', libName)}>
               卸载选中
             </Button>
-            <Button variant="glass" size="sm">
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={async () => {
+                const f = await pickFile('.whl')
+                if (f) fire('installWhl', f)
+              }}
+            >
               安装轮子.whl
             </Button>
           </FieldRow>
@@ -206,7 +221,7 @@ export default function DepsPage({ onAction, logs = [] }) {
             <Terminal size={13} />
             启动终端
           </Button>
-          <Button variant="glass" size="sm">
+          <Button variant="glass" size="sm" onClick={() => fire('sampleCmd')}>
             示例命令
           </Button>
         </div>

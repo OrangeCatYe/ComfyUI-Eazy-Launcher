@@ -8,6 +8,7 @@ import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
 import { SettingsProvider, useSettings } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
+import { pickDirectory, pickFile } from './lib/picker'
 import { createLogger } from './lib/logger'
 import {
   selectRequirementsFile,
@@ -96,6 +97,101 @@ function AppShell() {
   /* 动作标记：记录最后一次「恢复快照依赖」动作阶段 */
   const lastAction = useRef(null)
 
+  /* ================= 顶栏图标按钮 → 终端日志 ================= */
+  function handleTopBarAction(action, payload) {
+    setTerminalOpen(true)
+    switch (action) {
+      case 'topbar-refresh':
+        push({ level: 'cmd', text: '\n>>> 正在刷新页面数据...' })
+        push({ level: 'success', text: '>>> 刷新完成' })
+        break
+      case 'topbar-open-dir':
+        if (!settings.comfyRoot) {
+          push({ level: 'warning', text: '>>> ComfyUI 根目录未配置，请先在全局设置中配置。' })
+          return
+        }
+        push({ level: 'cmd', text: `\n>>> 打开目录：${payload}` })
+        break
+      case 'topbar-sound':
+        push({ level: 'info', text: `>>> 提示音已${payload}` })
+        break
+      case 'topbar-user':
+        push({ level: 'info', text: '>>> 当前为本地数据模式，数据接入后将自动填充。' })
+        break
+      default:
+        push({ level: 'info', text: `>>> ${action}` })
+    }
+  }
+
+  /* ================= 内核管理动作 → 终端日志 ================= */
+  function handleKernelAction(action, payload) {
+    setTerminalOpen(true)
+    switch (action) {
+      case 'kernel-refresh':
+        push({ level: 'cmd', text: '\n>>> 正在从远程仓库拉取版本列表...' })
+        push({ level: 'info', text: '>>> git fetch --tags' })
+        push({ level: 'success', text: '>>> 版本列表已更新' })
+        break
+      case 'kernel-switch-repo':
+        push({ level: 'cmd', text: `\n>>> 切换远程仓库: ${payload}` })
+        push({ level: 'success', text: '>>> 仓库切换完成' })
+        break
+      case 'kernel-switch-version':
+        push({ level: 'cmd', text: `\n>>> 正在切换内核版本: ${payload}` })
+        push({ level: 'info', text: '>>> 正在拉取对应提交...' })
+        push({ level: 'success', text: '>>> 内核切换完成' })
+        break
+      default:
+        push({ level: 'info', text: `>>> ${action}` })
+    }
+  }
+
+  /* ================= 插件管理动作 → 终端日志 ================= */
+  function handlePluginAction(action, payload) {
+    setTerminalOpen(true)
+    switch (action) {
+      case 'install-plugin':
+        push({ level: 'cmd', text: `\n>>> 正在安装插件: ${payload}` })
+        push({ level: 'success', text: '>>> 插件安装完成' })
+        break
+      case 'plugin-switch':
+      case 'plugin-log':
+        push({ level: 'info', text: typeof payload === 'string' && payload.startsWith('>>>') ? payload : `>>> 正在切换插件版本: ${payload}` })
+        push({ level: 'success', text: '>>> 切换完成' })
+        break
+      case 'plugin-toggle':
+        push({ level: 'info', text: `>>> 正在切换插件状态: ${payload}` })
+        push({ level: 'success', text: '>>> 状态切换完成' })
+        break
+      case 'plugin-uninstall':
+        push({ level: 'warning', text: `>>> 正在卸载插件: ${payload}` })
+        push({ level: 'success', text: '>>> 卸载完成' })
+        break
+      case 'batch-export':
+        push({ level: 'cmd', text: `\n>>> 批量导出 ${payload.length} 个插件` })
+        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
+        push({ level: 'success', text: '>>> 批量导出完成' })
+        break
+      case 'batch-update':
+        push({ level: 'cmd', text: `\n>>> 批量更新 ${payload.length} 个插件` })
+        payload.forEach((n) => push({ level: 'info', text: `>>> 正在更新 ${n}...` }))
+        push({ level: 'success', text: '>>> 批量更新完成' })
+        break
+      case 'batch-toggle':
+        push({ level: 'cmd', text: `\n>>> 批量开关 ${payload.length} 个插件` })
+        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
+        push({ level: 'success', text: '>>> 批量开关完成' })
+        break
+      case 'batch-uninstall':
+        push({ level: 'cmd', text: `\n>>> 批量卸载 ${payload.length} 个插件` })
+        payload.forEach((n) => push({ level: 'warning', text: `>>> 正在卸载 ${n}...` }))
+        push({ level: 'success', text: '>>> 批量卸载完成' })
+        break
+      default:
+        push({ level: 'info', text: `>>> ${action}` })
+    }
+  }
+
   /* 自动安装依赖 / 放心装（空数据阶段先本地托管） */
   const [autoInstall, setAutoInstall] = useState(true)
   const [safeMode, setSafeMode] = useState(false)
@@ -143,6 +239,7 @@ function AppShell() {
             repoUrl="https://github.com/Comfy-Org/ComfyUI.git"
             autoInstall={autoInstall}
             onToggleAutoInstall={setAutoInstall}
+            onAction={handleKernelAction}
           />
         )
       case 'plugins':
@@ -153,6 +250,7 @@ function AppShell() {
             onToggleAutoInstall={setAutoInstall}
             safeMode={safeMode}
             onToggleSafeMode={setSafeMode}
+            onAction={handlePluginAction}
           />
         )
       case 'deps':
@@ -169,6 +267,7 @@ function AppShell() {
             status={deployStatus}
             onPickDir={handlePickDeployDir}
             onDeploy={handleDeploy}
+            onReset={handleDeployReset}
           />
         )
       case 'settings':
@@ -208,6 +307,16 @@ function AppShell() {
       speedTestDone: `>>> 测速完成!检测到最快源为:${payload?.mirror ?? ''}(${payload?.secs ?? ''}秒)\n已自动切换。`,
       copyLog: '>>> 日志信息已复制到剪贴板',
       copyLogFail: '>>> 复制失败，请手动选择日志文本复制',
+      /* 第三方库管理与终端示例命令 */
+      installLib: `>>> pip install ${payload || ''}`,
+      uninstallLib: `>>> pip uninstall -y ${payload || ''}`,
+      installWhl: `>>> pip install ${payload || ''}`,
+      sampleCmd: [
+        '>>> 常用示例命令：',
+        ' - pip list                     查看已安装依赖',
+        ' - pip install -r requirements.txt   按文件安装依赖',
+        ' - python -m pip install --upgrade pip   升级 pip',
+      ].join('\n'),
     }
     /* 清空日志为独立回调，不产生新日志 */
     if (name === 'clearLog') {
@@ -418,21 +527,23 @@ function AppShell() {
     })
   }
 
-  /* 选择部署目录（浏览器环境下无本地文件对话框，改用输入提示） */
+  /* 重置部署环境：清空进度并输出日志 */
+  function handleDeployReset() {
+    setDeployProgress(0)
+    setDeployStatus('待命')
+    setTerminalOpen(true)
+    push({ level: 'cmd', text: '\n>>> 正在重置部署环境...' })
+    push({ level: 'info', text: '>>> 已清理部署目录与缓存' })
+    push({ level: 'success', text: '>>> 环境已重置，可重新部署' })
+  }
+
+  /* 选择部署目录（浏览器环境下无原生目录对话框，用 file input 近似） */
   function handlePickDeployDir() {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.webkitdirectory = true
-    input.directory = true
-    input.multiple = false
-    input.onchange = () => {
-      const f = input.files?.[0]
-      if (!f) return
-      const path = f.webkitRelativePath.split('/')[0] || f.name
+    pickDirectory().then((path) => {
+      if (!path) return
       setDeployDir(path)
       push({ level: 'info', text: `>>> 已选择部署目录：${path}` })
-    }
-    input.click()
+    })
   }
 
   /* 初恋部署：按阶段推进进度（无后端阶段本地模拟） */
@@ -493,6 +604,7 @@ function AppShell() {
               subtitle={meta.subtitle}
               terminalOpen={terminalOpen}
               onToggleTerminal={() => setTerminalOpen((v) => !v)}
+              onAction={handleTopBarAction}
             />
 
             <main className="flex-1 overflow-y-auto">{renderPage()}</main>

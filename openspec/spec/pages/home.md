@@ -28,11 +28,16 @@ Python 版本、Pytorch 版本、Git 版本、GPU 型号、显存占用情况、
 实现要点：`[perspective:1000px]` 外层 + `[transform-style:preserve-3d]` 内层，
 正反两面均 `[backface-visibility:hidden]`，背面预旋转 `rotateX(180deg)`。
 
+背面的「开始任务」按钮必须 `e.stopPropagation()`，
+否则点击会冒泡到卡片导致翻转回去。点击后在
+「开始任务 / 取消任务」间切换，监测状态显示「监测中 / 未开启」。
+
 ## 网盘入口弹窗
 
 点击「网盘入口」弹出，列出 4 个网盘（数据见 `src/config/tools.js` 的 `NETDISK_LINKS`）：
 
 夸克网盘、百度网盘、UC 网盘、迅雷网盘。
+每项点击 `window.open(url, '_blank', 'noopener,noreferrer')` 打开外链。
 
 ## 配置态判定
 
@@ -44,3 +49,7 @@ Python 版本、Pytorch 版本、Git 版本、GPU 型号、显存占用情况、
 持久化在 `LS.SETTINGS`。设置页改动会实时反映到首页。
 
 未配置时一键启动禁用、快捷入口显示 `EmptyState`。
+
+**历史坑**：这一项曾经恒传 `null`，导致一键启动永久禁用、
+快捷入口永远空状态，而页面看起来完全正常。
+改这块时务必实际点一下按钮验证，别只看渲染。

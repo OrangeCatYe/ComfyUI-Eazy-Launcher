@@ -1,8 +1,10 @@
 ﻿import { useState } from 'react'
-import { Copy, Play, Square, Trash2, Search, FolderOpen, Settings2 } from 'lucide-react'
+import { Copy, Play, Square, Trash2, Search, FolderOpen, Settings2, Loader2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { Toggle } from '../../components/ui/Toggle'
+import { useToast } from '../../components/ui/Toast'
+import { pickDirectory } from '../../lib/picker'
 import { DUP_MODEL_EXTS } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -26,18 +28,50 @@ export default function DupModelPage() {
   const [exts, setExts] = useState(DUP_MODEL_EXTS)
   const [advanced, setAdvanced] = useState(false)
   const [scanPath, setScanPath] = useState('C:\\ComfyUI\\ComfyUI\\ComfyUI\\models')
+  /* 以下为补齐的扫描状态机 */
+  const [scanning, setScanning] = useState(false)
+  const { showToast } = useToast()
 
   const toggleExt = (e) =>
     setExts((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))
 
+  /* 开始检测：校验格式后进入扫描态 */
+  function handleScan() {
+    if (scanning) return
+    if (exts.length === 0) {
+      showToast('alert', '提示', '请至少选择一种文件格式')
+      return
+    }
+    setScanning(true)
+    showToast(
+      'success',
+      '操作成功',
+      `开始按${mode === 'hash' ? '哈希值' : '文件名'}检测重复模型（${exts.length} 种格式）`
+    )
+    /* 无后端阶段：本地模拟扫描耗时 */
+    setTimeout(() => {
+      setScanning(false)
+      showToast('success', '操作成功', '检测完成，未发现重复模型')
+    }, 1500)
+  }
+
+  function handleCancel() {
+    if (!scanning) {
+      showToast('alert', '提示', '当前没有正在进行的检测任务')
+      return
+    }
+    setScanning(false)
+    showToast('success', '操作成功', '检测已取消')
+  }
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="primary" size="sm">
-          <Play size={13} />
-          开始检测
+        <Button variant="primary" size="sm" onClick={handleScan} disabled={scanning}>
+          {scanning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+          {scanning ? '检测中...' : '开始检测'}
         </Button>
-        <Button variant="glass" size="sm">
+        <Button variant="glass" size="sm" onClick={handleCancel}>
           <Square size={13} />
           取消检测
         </Button>
@@ -118,7 +152,14 @@ export default function DupModelPage() {
                     placeholder="选择要扫描的模型目录"
                   />
                 </div>
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) setScanPath(p)
+                  }}
+                >
                   浏览目录
                 </Button>
               </div>
@@ -151,7 +192,13 @@ export default function DupModelPage() {
         </div>
 
         <div className="px-5 py-3 flex justify-end border-t border-[var(--border-main)]">
-          <Button variant="danger" size="sm">
+           <Button
+            variant="danger"
+            size="sm"
+            onClick={() =>
+              showToast('alert', '提示', '请先扫描并勾选要移动到回收站的重复模型。')
+            }
+          >
             <Trash2 size={13} />
             移动到回收站
           </Button>

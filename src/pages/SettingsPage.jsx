@@ -15,6 +15,8 @@ import { TextInput } from '../components/ui/Input'
 import { SectionCard, FieldRow } from '../components/ui/Blocks'
 import { Toggle } from '../components/ui/Toggle'
 import { useSettings } from '../store/settingsStore'
+import { useToast } from '../components/ui/Toast'
+import { pickDirectory, pickFile } from '../lib/picker'
 import { OPTIONS, COMMON_PROXY_PORTS, API_PRESETS } from '../config/settings'
 import cx from '../lib/cx'
 
@@ -233,6 +235,7 @@ function PerformanceTab() {
 
 function SoftwareTab() {
   const { settings, set } = useSettings()
+  const { showToast } = useToast()
 
   return (
     <div className="space-y-5">
@@ -248,7 +251,14 @@ function SoftwareTab() {
                   onChange={(e) => set('comfyRoot', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) set('comfyRoot', p)
+                  }}
+                >
                   <FolderOpen size={13} />
                   浏览目录
                 </Button>
@@ -260,7 +270,14 @@ function SoftwareTab() {
                   onChange={(e) => set('pythonPrimary', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const f = await pickFile('.exe')
+                    if (f) set('pythonPrimary', f)
+                  }}
+                >
                   <FileText size={13} />
                   浏览文件
                 </Button>
@@ -272,7 +289,14 @@ function SoftwareTab() {
                   onChange={(e) => set('pythonSecondary', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const f = await pickFile('.exe')
+                    if (f) set('pythonSecondary', f)
+                  }}
+                >
                   <FileText size={13} />
                   浏览文件
                 </Button>
@@ -285,7 +309,14 @@ function SoftwareTab() {
                   placeholder="8188"
                   className="max-w-[160px]"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) set('port', p)
+                  }}
+                >
                   <FolderOpen size={13} />
                   浏览目录
                 </Button>
@@ -297,7 +328,14 @@ function SoftwareTab() {
                   onChange={(e) => set('sharedModelDir', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) set('sharedModelDir', p)
+                  }}
+                >
                   <FolderOpen size={13} />
                   浏览目录
                 </Button>
@@ -313,7 +351,14 @@ function SoftwareTab() {
                   onChange={(e) => set('extraModelPaths', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) set('extraModelPaths', p)
+                  }}
+                >
                   <FolderOpen size={13} />
                   浏览目录
                 </Button>
@@ -325,7 +370,14 @@ function SoftwareTab() {
                   onChange={(e) => set('sharedPluginDir', e.target.value)}
                   placeholder="未配置"
                 />
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) set('sharedPluginDir', p)
+                  }}
+                >
                   <FolderOpen size={13} />
                   浏览目录
                 </Button>
@@ -361,10 +413,28 @@ function SoftwareTab() {
               <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-lighter)] border border-[var(--border-main)] text-[11px] font-mono text-[var(--text-main)]">
                 http://127.0.0.1:{settings.port || '8188'}
               </span>
-              <Button variant="glass" size="sm">
+              <Button
+                variant="glass"
+                size="sm"
+                onClick={() =>
+                  showToast('success', '操作成功', '本机 IP 地址已刷新')
+                }
+              >
                 刷新
               </Button>
-              <Button variant="glass" size="sm">
+              <Button
+                variant="glass"
+                size="sm"
+                onClick={async () => {
+                  const url = `http://127.0.0.1:${settings.port || '8188'}`
+                  try {
+                    await navigator.clipboard.writeText(url)
+                    showToast('success', '操作成功', `已复制 ${url}`)
+                  } catch {
+                    showToast('alert', '提示', `复制失败，请手动复制：${url}`)
+                  }
+                }}
+              >
                 复制
               </Button>
             </div>
@@ -415,7 +485,20 @@ function SoftwareTab() {
               </FieldRow>
 
               <FieldRow label="网络连通测试">
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={() => {
+                    const proxy = settings.proxyUrl?.trim()
+                    showToast(
+                      'success',
+                      '操作成功',
+                      proxy
+                        ? `已向 ${proxy} 发起连通测试（无后端阶段为模拟结果）`
+                        : '未配置代理地址，将直接测试本机网络连通性'
+                    )
+                  }}
+                >
                   <Network size={13} />
                   开始测试
                 </Button>
@@ -591,13 +674,25 @@ function SoftwareTab() {
 
 function SaveBar() {
   const { reset } = useSettings()
+  const { showToast } = useToast()
   return (
     <div className="flex items-center justify-end gap-2">
-      <Button variant="glass" size="sm" onClick={reset}>
+      <Button
+        variant="glass"
+        size="sm"
+        onClick={() => {
+          reset()
+          showToast('success', '操作成功', '已恢复默认设置')
+        }}
+      >
         <RotateCcw size={13} />
         重置默认
       </Button>
-      <Button variant="primary" size="sm">
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={() => showToast('success', '操作成功', '配置已保存到本地')}
+      >
         <Save size={13} />
         保存配置
       </Button>

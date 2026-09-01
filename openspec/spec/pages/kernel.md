@@ -24,6 +24,16 @@
 - 行：`border-t`，`hover:bg-[var(--bg-hover)]`
 - 当前版本行：显示绿色「当前使用」徽标，而非「切换」按钮
 
+## 交互（3 个，均已接线）
+
+| 操作 | 行为 |
+|---|---|
+| 切换仓库 | `RepoModal` 输入新地址（空则禁用确认）→ 终端日志 + Toast |
+| 刷新列表 | 图标 `animate-spin`，文案变「拉取中...」，完成后恢复 |
+| 切换版本 | `ConfirmModal` 确认 → 终端日志 + Toast |
+
+刷新期间按钮 `disabled`，避免重复触发。
+
 ## 空态
 
 `EmptyState`：暂无版本数据 / 点击「刷新列表」从远程仓库拉取可用版本。
@@ -32,3 +42,8 @@
 
 `versions=[]`、`currentVersion="v0.33.1"`、`repoUrl` 为 Comfy-Org 官方仓库。
 真实数据接入后表格渲染，当前为空态。
+
+## 动作出口
+
+通过 `onAction` 回调到 App 的 `handleKernelAction`，
+产生 `kernel-refresh` / `kernel-switch-repo` / `kernel-switch-version` 三种日志。

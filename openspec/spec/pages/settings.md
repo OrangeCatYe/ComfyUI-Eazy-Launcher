@@ -41,6 +41,20 @@
 页面需要读取路径时用 `useSettings()`，不要另建 localStorage 键，
 否则会出现设置页与首页数据不一致。
 
+## 基础运行环境的浏览按钮
+
+8 个路径项各带「浏览目录 / 浏览文件」按钮，统一走 `src/lib/picker.js`：
+目录用 `pickDirectory()`，Python 文件用 `pickFile('.exe')`。
+选中后直接写回 `set(key, value)`。
+
+## 其它交互
+
+- **本机 IP 刷新**：Toast 提示已刷新
+- **复制**：`navigator.clipboard.writeText`，失败降级为提示手动复制
+- **网络连通测试**：按是否配置代理给出不同提示（无后端阶段为模拟结果）
+- **保存配置**：设置本身即时持久化，按钮仅 Toast 反馈
+- **重置默认**：`reset()` 后 Toast 反馈
+
 ## 界面缩放
 
 `uiScale` 取值 `standard` / `large` / `xlarge`，

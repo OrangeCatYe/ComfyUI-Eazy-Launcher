@@ -152,6 +152,7 @@ export default function HomePage({ config, onLaunch, running }) {
           {NETDISK_LINKS.map((n) => (
             <button
               key={n.name}
+              onClick={() => window.open(n.url, '_blank', 'noopener,noreferrer')}
               className="press w-full flex items-center gap-3 p-3 rounded-xl border border-[var(--border-main)] bg-[var(--bg-card-lighter)] hover:border-indigo-400/50 hover:bg-[var(--bg-hover)] text-left group"
             >
               <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
@@ -181,6 +182,8 @@ export default function HomePage({ config, onLaunch, running }) {
  */
 function FlipShutdownCard() {
   const [flipped, setFlipped] = useState(false)
+  /* 定时关机监测状态：未开启 / 监测中 */
+  const [monitoring, setMonitoring] = useState(false)
 
   return (
     <div className="[perspective:1000px]">
@@ -203,9 +206,18 @@ function FlipShutdownCard() {
               <span className="text-[11px] font-black">空闲后 30 分钟自动关机</span>
             </div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-[10px] text-[var(--text-sub)]">监测状态：未开启</span>
-              <button className="press px-2 py-0.5 rounded-md bg-indigo-500 text-white text-[10px] font-black">
-                开始任务
+              <span className="text-[10px] text-[var(--text-sub)]">
+                监测状态：{monitoring ? '监测中' : '未开启'}
+              </span>
+              <button
+                onClick={(e) => {
+                  /* 阻止冒泡，避免触发卡片翻转 */
+                  e.stopPropagation()
+                  setMonitoring((v) => !v)
+                }}
+                className="press px-2 py-0.5 rounded-md bg-indigo-500 text-white text-[10px] font-black"
+              >
+                {monitoring ? '取消任务' : '开始任务'}
               </button>
             </div>
           </div>

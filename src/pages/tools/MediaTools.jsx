@@ -2,6 +2,8 @@
 import { Film, Upload, Download, Scissors, VolumeX, FileVideo } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
+import { useToast } from '../../components/ui/Toast'
+import { pickFile } from '../../lib/picker'
 import { MEDIA_TABS, MEDIA_USAGE } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -20,6 +22,10 @@ import cx from '../../lib/cx'
 
 export default function MediaToolsPage() {
   const [tab, setTab] = useState(MEDIA_TABS[0].id)
+  /* 以下为补齐的交互态：已选文件与处理状态 */
+  const [file, setFile] = useState(null)
+  const [processing, setProcessing] = useState(false)
+  const { showToast } = useToast()
 
   const actionText = {
     extract: { title: '一键提取视频音频为 MP3', desc: '保留原音轨内容并导出为独立 MP3 文件。', btn: '提取并保存 MP3' },
@@ -50,11 +56,20 @@ export default function MediaToolsPage() {
         <div className="space-y-4 min-w-0">
           <SectionCard title="上传本地视频" desc="支持常见视频格式，适合一键提取 MP3 或移除原视频中的音轨。">
             <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="glass" size="sm">
+              <Button
+                variant="glass"
+                size="sm"
+                onClick={async () => {
+                  const f = await pickFile('video/*,audio/*')
+                  if (f) setFile(f)
+                }}
+              >
                 <Upload size={13} />
                 选择文件
               </Button>
-              <span className="text-[11px] text-[var(--text-sub)]">尚未选择本地文件。</span>
+              <span className="text-[11px] text-[var(--text-sub)]">
+                {file ? `已选择：${file}` : '尚未选择本地文件。'}
+              </span>
             </div>
           </SectionCard>
 
@@ -70,8 +85,25 @@ export default function MediaToolsPage() {
           </SectionCard>
 
           <SectionCard title={actionText.title} desc={actionText.desc}>
-            <Button variant="primary" size="sm" icon={ACTION_ICON[tab]}>
-              {actionText.btn}
+            <Button
+              variant="primary"
+              size="sm"
+              icon={ACTION_ICON[tab]}
+              disabled={processing}
+              onClick={() => {
+                if (!file) {
+                  showToast('alert', '提示', '请先选择本地媒体文件')
+                  return
+                }
+                setProcessing(true)
+                showToast('success', '操作成功', `已开始处理：${file}`)
+                setTimeout(() => {
+                  setProcessing(false)
+                  showToast('success', '操作成功', `${actionText.btn} 完成，已保存到本地`)
+                }, 1500)
+              }}
+            >
+              {processing ? '处理中...' : actionText.btn}
             </Button>
           </SectionCard>
         </div>

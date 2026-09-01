@@ -2,6 +2,7 @@
 import { Power, Clock, Activity, Cpu } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SectionCard } from '../../components/ui/Blocks'
+import { useToast } from '../../components/ui/Toast'
 
 /*
  * 自动关机任务 —— 依据「自动关机任务.png」
@@ -147,6 +148,10 @@ function StatusField({ label, value }) {
 }
 
 function TaskCard({ icon: Icon, title, desc, statusLabel, statusValue, children }) {
+  /* 任务状态：未开启 / 运行中，点击「开始任务」切换 */
+  const [running, setRunning] = useState(false)
+  const { showToast } = useToast()
+
   return (
     <SectionCard>
       <div className="flex items-start gap-3.5">
@@ -162,11 +167,25 @@ function TaskCard({ icon: Icon, title, desc, statusLabel, statusValue, children 
 
           <div className="mt-3 pt-3 border-t border-[var(--border-main)] flex items-center justify-between gap-3 flex-wrap">
             <span className="text-[11px] text-[var(--text-sub)]">
-              {statusLabel}：<span className="font-black tnum text-[var(--text-main)]">{statusValue}</span>
+              {statusLabel}：
+              <span className="font-black tnum text-[var(--text-main)]">
+                {running ? '运行中' : statusValue}
+              </span>
             </span>
-            <Button variant="primary" size="sm">
+            <Button
+              variant={running ? 'glass' : 'primary'}
+              size="sm"
+              onClick={() => {
+                setRunning((v) => !v)
+                showToast(
+                  'success',
+                  '操作成功',
+                  running ? `已取消「${title}」` : `已开启「${title}」`
+                )
+              }}
+            >
               <Power size={13} />
-              开始任务
+              {running ? '取消任务' : '开始任务'}
             </Button>
           </div>
         </div>

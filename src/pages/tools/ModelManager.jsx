@@ -3,6 +3,8 @@ import { Boxes, RefreshCw, Star, Trash2, Search, FolderTree, Filter } from 'luci
 import { Button } from '../../components/ui/Button'
 import { SearchInput } from '../../components/ui/Input'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
+import { ConfirmModal } from '../../components/ui/Modal'
+import { useToast } from '../../components/ui/Toast'
 import { MODEL_DIRS, MODEL_QUICK_FILTERS, MODEL_SORTS } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -26,18 +28,50 @@ export default function ModelManagerPage() {
   const [sort, setSort] = useState(MODEL_SORTS[0])
   const [keyword, setKeyword] = useState('')
 
+  /* 以下为补齐的交互态（数据仍为空，操作仅做本地反馈） */
+  const [models, setModels] = useState([])
+  const [selected, setSelected] = useState({})
+  const [refreshing, setRefreshing] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const { showToast } = useToast()
+
+  const selectedNames = models.filter((m) => selected[m.name]).map((m) => m.name)
+
+  function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    showToast('success', '操作成功', `正在读取「${dir}」目录`)
+    setTimeout(() => setRefreshing(false), 900)
+  }
+
+  function handleFavorite() {
+    if (selectedNames.length === 0) {
+      showToast('alert', '提示', '请先勾选要设为常用的模型')
+      return
+    }
+    showToast('success', '操作成功', `已将 ${selectedNames.length} 个模型设为常用`)
+  }
+
+  function handleDelete() {
+    if (selectedNames.length === 0) {
+      showToast('alert', '提示', '请先勾选要删除的模型')
+      return
+    }
+    setConfirmDel(true)
+  }
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-end gap-2 flex-wrap">
-        <Button variant="glass" size="sm">
-          <RefreshCw size={13} />
-          刷新列表
+        <Button variant="glass" size="sm" onClick={handleRefresh} disabled={refreshing}>
+          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? '读取中...' : '刷新列表'}
         </Button>
-        <Button variant="glass" size="sm">
+        <Button variant="glass" size="sm" onClick={handleFavorite}>
           <Star size={13} />
           设为常用
         </Button>
-        <Button variant="danger" size="sm">
+        <Button variant="danger" size="sm" onClick={handleDelete}>
           <Trash2 size={13} />
           删除已选
         </Button>
@@ -99,8 +133,24 @@ export default function ModelManagerPage() {
 
               <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-[var(--border-main)]">
                 <label className="flex items-center gap-2 text-[11px] font-black text-[var(--text-sub)] cursor-pointer">
-                  <input type="checkbox" className="accent-indigo-500" />
-                  全选本页 <span className="tnum text-[var(--text-main)]">0 / 0</span>
+                  <input
+                    type="checkbox"
+                    className="accent-indigo-500"
+                    checked={models.length > 0 && selectedNames.length === models.length}
+                    onChange={(e) => {
+                      const next = {}
+                      if (e.target.checked) {
+                        models.forEach((m) => {
+                          next[m.name] = true
+                        })
+                      }
+                      setSelected(next)
+                    }}
+                  />
+                  全选本页{' '}
+                  <span className="tnum text-[var(--text-main)]">
+                    {selectedNames.length} / {models.length}
+                  </span>
                 </label>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -124,15 +174,56 @@ export default function ModelManagerPage() {
             </div>
 
             <div className="px-4 pb-4">
-              <EmptyState
-                icon={Boxes}
-                title="当前条件下没有找到模型文件。"
-                desc="切换左侧模型目录，或调整筛选与搜索条件后重试。"
-              />
+              {models.length === 0 ? (
+                <EmptyState
+                  icon={Boxes}
+                  title="当前条件下没有找到模型文件。"
+                  desc="切换左侧模型目录，或调整筛选与搜索条件后重试。"
+                />
+              ) : (
+                <div className="space-y-1">
+                  {models.map((m) => (
+                    <label
+                      key={m.name}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[var(--bg-card-lighter)] border border-[var(--border-main)] cursor-pointer hover:bg-[var(--bg-hover)]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selected[m.name])}
+                        onChange={() =>
+                          setSelected((s) => ({ ...s, [m.name]: !s[m.name] }))
+                        }
+                        className="accent-indigo-500 shrink-0"
+                      />
+                      <span className="text-[11px] font-black text-[var(--text-main)] truncate">
+                        {m.name}
+                      </span>
+                      <span className="ml-auto text-[11px] tnum text-[var(--text-sub)]">
+                        {m.size}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>
       </div>
+
+      {/* 删除已选二次确认 */}
+      <ConfirmModal
+        open={confirmDel}
+        danger
+        onClose={() => setConfirmDel(false)}
+        onConfirm={() => {
+          setModels((list) => list.filter((m) => !selected[m.name]))
+          setSelected({})
+          setConfirmDel(false)
+          showToast('success', '操作成功', `已删除 ${selectedNames.length} 个模型`)
+        }}
+        title="删除模型"
+        message={`确认删除已选的 ${selectedNames.length} 个模型？此操作不可撤销。`}
+      />
     </div>
   )
 }

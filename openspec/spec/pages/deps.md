@@ -39,9 +39,25 @@
 | 库名为空 | `alert('提示\n请先输入要查询的库名')` |
 | ComfyUI 路径未设置 | `alert('提示\nComfyUI 路径未设置')` |
 
-ComfyUI 路径取自 App 的 `comfyRoot`（localStorage `kk_comfy_root`）。
+ComfyUI 路径取自 App 的 `comfyRoot`（来自统一设置层）。
+
+## 其它按钮
+
+| 按钮 | 行为 |
+|---|---|
+| 选择文件 | `pickFile('.txt')`，选中后显示文件名 |
+| 安装选中 | `>>> pip install <库名>` |
+| 卸载选中 | `>>> pip uninstall -y <库名>` |
+| 安装轮子.whl | `pickFile('.whl')` 后输出 `>>> pip install <文件>` |
+| 示例命令 | 输出 3 条常用 pip 命令 |
 
 ## 日志区
 
 页面内日志区与底部终端**共享同一份 logs**，
 「复制日志信息」写入剪贴板，「清空日志信息」调用 `clear()`。
+
+## 动作出口
+
+全部通过 `onAction(name, payload)` 回调到 App 的 `handleDepsAction`。
+三个协议功能在该函数开头被分流到独立实现，
+其余走 `map` 表的日志文案映射。

@@ -40,11 +40,22 @@
 | 5 | 拉取 ComfyUI 仓库 | 90% |
 | 6 | 安装依赖并完成部署 | 100% |
 
-阶段清单：已完成打勾，进行中显示旋转图标，
+阶段清单：已完成打勾，进行中显示旋转图标（`Loader` + `animate-spin`），
 进度条在进行中带 `animate-pulse`。
+
+## 交互（3 个）
+
+| 操作 | 行为 |
+|---|---|
+| 选择目录 | `pickDirectory()`，选中后写入终端日志 |
+| 从零开始 | 按 6 阶段推进，进行中 `disabled` 且文案变「部署中...」 |
+| 重置环境 | `ConfirmModal`（danger）确认 → 清空进度 + 终端日志 |
+
+部署进行中「重置环境」也 `disabled`，避免状态冲突。
 
 ## 目录选择
 
-浏览器环境无原生目录对话框，用 `<input type="file" webkitdirectory>`
-取 `webkitRelativePath` 的第一段作为目录名。
-接入 Electron 后应改回原生对话框。
+浏览器环境无原生目录对话框，统一用 `src/lib/picker.js` 的
+`pickDirectory()`（内部用 `<input type="file" webkitdirectory>`
+取 `webkitRelativePath` 第一段）。
+接入 Electron 后只改 picker，页面不动。

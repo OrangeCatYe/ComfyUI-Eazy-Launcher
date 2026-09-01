@@ -1,6 +1,8 @@
-import { Moon, RefreshCw, Sun, Terminal, FolderOpen, Volume2, User } from 'lucide-react'
+import { Moon, RefreshCw, Sun, Terminal, FolderOpen, Volume2, VolumeX, User } from 'lucide-react'
+import { useState } from 'react'
 import cx from '../../lib/cx'
 import { useUI } from '../../store/uiStore'
+import { useSettings } from '../../store/settingsStore'
 
 /*
  * TopBar —— 原版顶部栏
@@ -9,11 +11,38 @@ import { useUI } from '../../store/uiStore'
  *       依次为 刷新 / 目录 / 声音 / 主题 / 用户
  *       最右为「显示终端」按钮
  */
-export function TopBar({ title, subtitle, onToggleTerminal, terminalOpen }) {
+export function TopBar({ title, subtitle, onToggleTerminal, terminalOpen, onAction }) {
   const { theme, toggleTheme } = useUI()
+  const { settings } = useSettings()
+  const [refreshing, setRefreshing] = useState(false)
+  const [muted, setMuted] = useState(false)
 
   const iconBtn =
     'press p-2 rounded-xl bg-[var(--bg-glass-strong)] border border-[var(--border-main)] text-[var(--text-sub)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] shadow-sm'
+
+  /* 刷新：旋转动画 + 终端日志 */
+  function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    onAction?.('topbar-refresh')
+    setTimeout(() => setRefreshing(false), 900)
+  }
+
+  /* 打开目录：无 comfyRoot 时提示 */
+  function handleOpenDir() {
+    onAction?.('topbar-open-dir', settings.comfyRoot || '未配置')
+  }
+
+  /* 声音开关 */
+  function handleToggleSound() {
+    setMuted((v) => !v)
+    onAction?.('topbar-sound', muted ? '开启' : '静音')
+  }
+
+  /* 用户：提示当前为本地模式 */
+  function handleUser() {
+    onAction?.('topbar-user')
+  }
 
   return (
     <header className="h-[68px] shrink-0 px-6 flex items-center justify-between border-b border-[var(--border-main)] bg-[var(--bg-sidebar)] backdrop-blur-xl">
@@ -27,19 +56,19 @@ export function TopBar({ title, subtitle, onToggleTerminal, terminalOpen }) {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className={iconBtn} title="刷新">
-          <RefreshCw size={15} />
+        <button onClick={handleRefresh} className={iconBtn} title="刷新">
+          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
         </button>
-        <button className={iconBtn} title="打开目录">
+        <button onClick={handleOpenDir} className={iconBtn} title="打开目录">
           <FolderOpen size={15} />
         </button>
-        <button className={iconBtn} title="声音">
-          <Volume2 size={15} />
+        <button onClick={handleToggleSound} className={iconBtn} title={muted ? '取消静音' : '声音'}>
+          {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
         </button>
         <button onClick={toggleTheme} className={iconBtn} title="切换主题">
           {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
         </button>
-        <button className={iconBtn} title="用户">
+        <button onClick={handleUser} className={iconBtn} title="用户">
           <User size={15} />
         </button>
 

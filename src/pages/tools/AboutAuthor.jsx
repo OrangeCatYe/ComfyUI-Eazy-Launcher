@@ -2,6 +2,7 @@
 import { User, Download, ExternalLink, Package } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SectionCard } from '../../components/ui/Blocks'
+import { useToast } from '../../components/ui/Toast'
 import { AUTHOR_PLUGINS, AUTHOR_TABS } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -17,6 +18,7 @@ import cx from '../../lib/cx'
  */
 
 export default function AboutAuthorPage() {
+  const { showToast } = useToast()
   const [tab, setTab] = useState(AUTHOR_TABS[0])
 
   return (
@@ -59,11 +61,19 @@ export default function AboutAuthorPage() {
                   </div>
                 </div>
 
-                <Button variant="glass" size="sm">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={() => window.open(p.url, '_blank', 'noopener,noreferrer')}
+                >
                   <ExternalLink size={12} />
                   访问
                 </Button>
-                <Button variant="primary" size="sm">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => showToast('success', '操作成功', `已加入安装队列：${p.name}`)}
+                >
                   <Download size={12} />
                   快捷安装
                 </Button>

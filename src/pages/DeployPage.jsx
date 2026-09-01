@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Rocket, FolderOpen, RotateCcw, Check, Download, Loader } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { SectionCard, FieldRow, EmptyState } from '../components/ui/Blocks'
+import { ConfirmModal } from '../components/ui/Modal'
 import cx from '../lib/cx'
 
 /*
@@ -43,6 +45,9 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
   const pct = progress || 0
   const active = pct > 0 && pct < 100
 
+  /* 重置环境二次确认（会清空已部署内容），需先挂 useState */
+  const [resetOpen, setResetOpen] = useState(false)
+
   return (
     <div className="p-6 space-y-5">
       {/* Hero */}
@@ -59,7 +64,12 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
             <Rocket size={13} />
             {active ? '部署中...' : '从零开始'}
           </Button>
-          <Button variant="glass" size="sm">
+          <Button
+            variant="glass"
+            size="sm"
+            disabled={active}
+            onClick={() => setResetOpen(true)}
+          >
             <RotateCcw size={13} />
             重置环境
           </Button>
@@ -206,6 +216,19 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
           })}
         </div>
       </SectionCard>
+
+      {/* 重置环境二次确认 */}
+      <ConfirmModal
+        open={resetOpen}
+        danger
+        onClose={() => setResetOpen(false)}
+        onConfirm={() => {
+          setResetOpen(false)
+          onReset?.()
+        }}
+        title="重置部署环境"
+        message="确认重置部署环境？此操作会清空当前部署目录并重新初始化，不可撤销。"
+      />
     </div>
   )
 }
