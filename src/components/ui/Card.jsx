@@ -1,4 +1,4 @@
-import cx from '../lib/cx'
+import cx from '../../lib/cx'
 
 /*
  * Card —— 原版基础容器

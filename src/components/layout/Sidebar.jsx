@@ -17,7 +17,7 @@ import {
   Workflow,
   Wrench,
 } from 'lucide-react'
-import cx from '../lib/cx'
+import cx from '../../lib/cx'
 
 /*
  * 图标名 → 组件映射
