@@ -43,6 +43,10 @@
 | `comfy-model-release` | 官方模型下载 | action | — |
 | `free-cloud-compute` | 免费云端算力 | action | — |
 
+两个 action 工具**不进页面**，点击直接 `window.open` 打开外链，
+并向终端输出一行日志。外链地址见 `src/config/navigation.js`
+的 `TOOLS[].url` 字段。
+
 ## 各工具页要点
 
 ### 模型管理

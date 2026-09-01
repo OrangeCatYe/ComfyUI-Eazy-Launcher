@@ -200,13 +200,23 @@ function AppShell() {
 
   const navigate = useCallback((id) => setPage(id), [])
 
-  const openTool = useCallback((tool) => {
-    if (tool.kind === 'action') {
-      push({ level: 'info', text: `[ACTION] 触发动作：${tool.label}（外链/弹窗，S3 阶段实现）` })
-      return
-    }
-    setPage(`tool:${tool.id}`)
-  }, [push])
+  const openTool = useCallback(
+    (tool) => {
+      /* action 工具不进页面，直接开外链 + 一行终端日志 */
+      if (tool.kind === 'action') {
+        push({ level: 'cmd', text: `\n>>> 正在打开：${tool.label}` })
+        if (tool.url) {
+          push({ level: 'info', text: ` - ${tool.url}` })
+          window.open(tool.url, '_blank', 'noopener,noreferrer')
+        } else {
+          push({ level: 'warning', text: '>>> 该工具未配置外链地址' })
+        }
+        return
+      }
+      setPage(`tool:${tool.id}`)
+    },
+    [push]
+  )
 
   const meta = useMemo(() => {
     if (page.startsWith('tool:')) {
@@ -283,12 +293,6 @@ function AppShell() {
     if (name === 'compareEnv') return runCompareEnv()
     if (name === 'findRefs') return runFindRefs(payload)
     if (name === 'restoreSnapshot') return runRestoreSnapshot()
-
-    /* 清空日志为独立回调，不产生新日志 */
-    if (name === 'clearLog') {
-      clear()
-      return
-    }
 
     const map = {
       speedTest: '>>> 正在启动镜像源测速...',
@@ -607,7 +611,11 @@ function AppShell() {
               onAction={handleTopBarAction}
             />
 
-            <main className="flex-1 overflow-y-auto">{renderPage()}</main>
+            {page.startsWith('tool:') ? (
+              <div className="p-6">{renderPage()}</div>
+            ) : (
+              renderPage()
+            )}
 
             <TerminalDrawer
               open={terminalOpen}

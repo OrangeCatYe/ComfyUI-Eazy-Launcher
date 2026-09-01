@@ -113,6 +113,7 @@ export const TOOLS = [
     icon: 'Download',
     gradient: 'from-cyan-500 to-blue-600',
     kind: 'action',
+    url: 'https://www.modelscope.cn/organization/Comfy-Org',
   },
   {
     id: 'free-cloud-compute',
@@ -121,6 +122,7 @@ export const TOOLS = [
     icon: 'Cloud',
     gradient: 'from-violet-500 to-purple-600',
     kind: 'action',
+    url: 'https://www.runninghub.cn/?invitationCode=rh-v1942b78',
   },
 ]
 
