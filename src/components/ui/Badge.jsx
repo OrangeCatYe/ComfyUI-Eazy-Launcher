@@ -29,41 +29,7 @@ export function Badge({ tone = 'neutral', icon: Icon, className = '', children }
 }
 
 /*
- * EmptyState —— 空数据占位
- * 用户要求：数据用空状态，后续接真实数据
- */
-export function EmptyState({
-  icon: Icon,
-  title = '暂无数据',
-  description,
-  action,
-  className = '',
-}) {
-  return (
-    <div
-      className={cx(
-        'flex flex-col items-center justify-center text-center py-14 px-6',
-        className
-      )}
-    >
-      {Icon && (
-        <div className="w-14 h-14 rounded-2xl bg-[var(--bg-hover)] flex items-center justify-center mb-4">
-          <Icon size={24} className="text-[var(--text-sub)]" />
-        </div>
-      )}
-      <p className="text-sm font-black text-[var(--text-main)]">{title}</p>
-      {description && (
-        <p className="mt-1.5 text-xs text-[var(--text-sub)] leading-relaxed max-w-xs">
-          {description}
-        </p>
-      )}
-      {action && <div className="mt-5">{action}</div>}
-    </div>
-  )
-}
-
-/*
- * StatItem —— 键值信息行（用于设备信息、详情面板）
+ * StatItem 鈥斺€?鍵值信息行（用于设备信息、详情面板）
  */
 export function StatItem({ label, value, mono = false, tone = 'default' }) {
   const tones = {

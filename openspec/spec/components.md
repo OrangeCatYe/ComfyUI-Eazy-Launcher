@@ -1,97 +1,102 @@
-# 通用组件规格
+# 通用区块组件规格
 
-所有组件位于 `src/components/ui/`，规格来源为原版截图 + 源码类名。
+> 七个主页面共用的结构件。所有页面遵循同一套区块语言。
 
-## Button
+## PageHeader
 
-文件：`src/components/ui/Button.jsx`
+页面主标题区，位于内容区顶部。
 
-五种变体，对应截图中的实际用法：
-
-| 变体 | 用途 | 观感 |
-|---|---|---|
-| `primary` | 主操作（一键启动、保存） | 渐变 indigo → indigo-600 |
-| `glass` | 玻璃拟态次级（原版最多） | 半透明底 + 描边 + shadow-lg |
-| `ghost` | 无边框纯文字 | 仅 hover 底色 |
-| `danger` | 危险操作（卸载选中） | hover 变 rose-600 |
-| `outline` | 描边按钮 | 强描边 |
-
-尺寸：`sm`（px-3 py-1.5）/ `md`（px-4 py-2.5）/ `lg`（w-full py-3.5）
-
-统一特征：`rounded-xl` + `font-black` + `text-xs` + `active:scale-95`（`.press`）
-
-## Card
-
-文件：`src/components/ui/Card.jsx`
-
-`rounded-[2rem]` + `border` + `shadow-xl`，内部 padding 默认 `p-6`。
-
-## SectionTitle
-
-文件：`src/components/ui/Card.jsx`
-
-区块标题。原版观感：
-
-```
-text-xs font-black text-[var(--text-sub)] uppercase tracking-[0.2em]
+```jsx
+<PageHeader title="系统与网络配置" desc="系统路径，代理与偏好设置" />
 ```
 
-常带 14px 图标，支持右侧 `action` 插槽。
+- 标题：`text-2xl font-black text-[var(--text-main)]`
+- 描述：`mt-1 text-xs text-[var(--text-sub)]`
+- 与内容区间距：`mb-6`
 
-## Modal
+## SectionCard
 
-文件：`src/components/ui/Modal.jsx`
+带标题的内容区块，页面内主要分割单位。
 
-- 遮罩：`bg-black/40` + `backdrop-blur-2xl`
-- 容器：`rounded-[2rem]` + `animate-scale-in`
-- 头部：可选图标（36px 圆角方块）+ 标题 + 说明
-- 底部：`bg-card-lighter` + 上描边，承载操作按钮
-- 尺寸：`sm` / `md` / `lg` / `xl`
-
-**ConfirmModal**：截图实证，插件「切换」为 `取消 / 确认` 两按钮，无图标。
-
-## Toggle
-
-文件：`src/components/ui/Toggle.jsx`
-
-胶囊轨道 44×24px + 20px 圆钮，开启态 `bg-accent`。支持 label + description。
-
-## Toast
-
-文件：`src/components/ui/Toast.jsx`
-
-截图实证文案形态：
-
-```
-操作成功
-回滚成功（无需安装依赖）
-       [ 确定 ]
+```jsx
+<SectionCard title="基础运行环境" desc="ComfyUI 运行所需的核心路径">
+  ...
+</SectionCard>
 ```
 
-居中图标（34px）+ 标题 + 说明 + 全宽确定按钮。
-类型：`success` / `alert` / `error` / `info`
+- 容器：`rounded-2xl border border-[var(--border-main)] bg-[var(--bg-card)] shadow`
+- 内边距：`p-5`
+- 区块间距：`space-y-5`
+- 标题：`section-title` 类（大写、字距 0.2em）
+- 可选 `desc`：标题右侧小字说明
 
-## 表单控件
+## FieldRow
 
-文件：`src/components/ui/Input.jsx`
+表单行，用于设置类页面。
 
-| 组件 | 用途 |
+```jsx
+<FieldRow label="ComfyUI 根目录" hint="ComfyUI 的主目录">
+  <Input value={...} />
+  <Button variant="glass" size="sm">浏览目录</Button>
+</FieldRow>
+```
+
+- 布局：`flex items-center gap-3`
+- 标签宽度：`w-32 shrink-0`，右对齐或左对齐按页面统一（设置页左对齐）
+- `hint`：标签下方 `text-[11px] text-[var(--text-sub)]`
+
+## EmptyState
+
+空数据占位，**S2/S3 所有列表默认走此组件**。
+
+```jsx
+<EmptyState icon={PackageSearch} title="暂无插件" desc="点击右上角「安装新插件」开始" />
+```
+
+- 图标容器：`w-14 h-14 rounded-2xl bg-[var(--bg-card-lighter)]`
+- 标题：`text-sm font-black text-[var(--text-main)]`
+- 描述：`text-xs text-[var(--text-sub)] max-w-xs`
+- 垂直居中，`py-12`
+
+## StatCard
+
+首页与概览类数据卡。
+
+```jsx
+<StatCard icon={Cpu} label="内核版本" value="v0.33.1" />
+```
+
+- 容器：`rounded-2xl border bg-[var(--bg-card)] p-4`
+- 图标：`w-9 h-9 rounded-xl` 渐变底
+- 值：`text-lg font-black tnum`
+- 标签：`text-[11px] text-[var(--text-sub)]`
+
+## Toolbar
+
+列表页顶部操作条。
+
+```jsx
+<Toolbar count={3} countUnit="个已安装" actions={[...]} />
+```
+
+- 左侧计数：`text-xs font-black text-[var(--text-sub)]`
+- 右侧按钮组：`flex gap-2`，`flex-wrap`
+- 与列表间距：`mb-4`
+
+## 表格
+
+内核管理用表格，其余页面用卡片列表。
+
+- 表头：`bg-[var(--bg-card-lighter)] text-[11px] font-black uppercase tracking-wider`
+- 行：`border-t border-[var(--border-main)]`
+- 悬浮：`hover:bg-[var(--bg-hover)]`
+
+## 间距基线
+
+| 用途 | 值 |
 |---|---|
-| `SearchInput` | 搜索框，左放大镜，有值时右清除按钮 |
-| `TextInput` | 单行输入 |
-| `TextArea` | 多行输入 |
-| `Field` | 字段容器（标签 + 控件 + 说明） |
-
-统一观感：`rounded-xl` + `bg-card-lighter` + 聚焦时 `border-accent` + `ring-2 accent-soft`
-
-## 展示组件
-
-文件：`src/components/ui/Badge.jsx`
-
-| 组件 | 用途 |
-|---|---|
-| `Badge` | 状态标签，6 种色调 |
-| `EmptyState` | 空数据占位（本项目默认状态） |
-| `StatItem` | 键值信息行 |
-
-截图实证的 Badge 文案：`有新版本` / `当前版本` / `已在使用` / `本地插件` / `支持视觉` / `本地保存`
+| 页面外边距 | `p-6` |
+| 区块间距 | `space-y-5` |
+| 卡片内边距 | `p-5` |
+| 按钮组间距 | `gap-2` |
+| 表单行间距 | `space-y-3` |
