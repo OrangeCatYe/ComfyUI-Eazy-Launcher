@@ -9,10 +9,12 @@ import {
   Cloud,
   ExternalLink,
   Power,
+  FolderPlus,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { StatCard, SectionCard, EmptyState } from '../components/ui/Blocks'
 import { Modal } from '../components/ui/Modal'
+import { AddEnvironmentModal } from '../components/ui/AddEnvironmentModal'
 import { NETDISK_LINKS } from '../config/tools'
 
 /*
@@ -24,27 +26,17 @@ import { NETDISK_LINKS } from '../config/tools'
  *   3. 当前设备信息（6 项数据卡）
  *   4. 快捷入口
  *
- * 数据策略：空状态优先，config 为空时展示未配置态
+ * 数据策略：全部来自真实扫描结果（env），未配置时展示未配置态并引导导入。
+ * 不再有任何预置/模拟数值：读不到就显示「—」，代表尚未获取。
  */
 
-const DEVICE_INFO = [
-  { icon: Cpu, label: 'Python 版本', value: '—' },
-  { icon: Cpu, label: 'Pytorch 版本', value: '—' },
-  { icon: Cpu, label: 'Git 版本', value: '—' },
-  { icon: HardDrive, label: 'GPU 型号', value: '—' },
-  { icon: HardDrive, label: '显存占用情况', value: '—' },
-  { icon: Blocks, label: '已装插件', value: '0' },
-]
+/* 未获取时的占位值，明确区别于真实的 0 */
+const UNKNOWN = '—'
 
-const QUICK_LINKS = [
-  { id: 'dir', icon: FolderOpen, label: '目录直达', desc: '快速打开常用目录' },
-  { id: 'netdisk', icon: Cloud, label: '网盘入口', desc: '各类网盘资源直达' },
-  { id: 'shutdown', icon: Clock, label: '定时关机', desc: '任务结束后自动关机' },
-]
-
-export default function HomePage({ config, onLaunch, running }) {
+export default function HomePage({ config, env, onLaunch, running, onImportEnv, onLog }) {
   const configured = Boolean(config?.comfyRoot)
   const [netdiskOpen, setNetdiskOpen] = useState(false)
+  const [addEnvOpen, setAddEnvOpen] = useState(false)
 
   const handleQuickLink = (id) => {
     if (id === 'netdisk') setNetdiskOpen(true)
@@ -59,7 +51,7 @@ export default function HomePage({ config, onLaunch, running }) {
             <h2 className="text-xl font-black text-[var(--text-main)] leading-tight">
               欢迎使用 ComfyUI_KK 专业管理平台
             </h2>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
               <span
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black ${
                   configured
@@ -72,8 +64,35 @@ export default function HomePage({ config, onLaunch, running }) {
                     configured ? 'bg-emerald-500' : 'bg-amber-500'
                   }`}
                 />
-                {configured ? '系统就绪 环境已连接' : '未配置 请先设置根目录'}
+                {configured
+                  ? env?.verified
+                    ? '系统就绪 环境已连接'
+                    : '已配置 未通过校验'
+                  : '未配置 请先设置根目录'}
               </span>
+
+              {/* 未配置时，在状态旁直接给出快捷配置入口 */}
+              <Button
+                variant="glass"
+                size="sm"
+                onClick={() => setAddEnvOpen(true)}
+                className="gap-1.5"
+              >
+                <FolderPlus size={13} />
+                添加本地环境
+              </Button>
+
+              {configured && !env?.verified && (
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={() => setAddEnvOpen(true)}
+                  className="gap-1.5"
+                >
+                  <FolderPlus size={13} />
+                  重新扫描
+                </Button>
+              )}
             </div>
           </div>
 
@@ -96,14 +115,56 @@ export default function HomePage({ config, onLaunch, running }) {
         </div>
       </section>
 
-      {/* 当前设备信息 */}
+      {/* 当前设备信息 —— 数据来自真实扫描结果，未获取显示「—」 */}
       <SectionCard title="当前设备信息">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {DEVICE_INFO.map((it) => (
-            <StatCard key={it.label} icon={it.icon} label={it.label} value={it.value} />
-          ))}
-          <FlipShutdownCard />
-        </div>
+        {configured ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <StatCard
+                icon={Cpu}
+                label="Python 版本"
+                value={env?.pythonVersion || UNKNOWN}
+                hint={env?.pythonPath ? '来自已识别的解释器' : '尚未获取'}
+              />
+              <StatCard icon={Cpu} label="Pytorch 版本" value={env?.torchVersion || UNKNOWN} />
+              <StatCard
+                icon={Cpu}
+                label="Git 版本"
+                value={env?.gitVersion || (env?.hasGit ? '已安装' : UNKNOWN)}
+              />
+              <StatCard icon={HardDrive} label="GPU 型号" value={env?.gpuName || UNKNOWN} />
+              <StatCard
+                icon={HardDrive}
+                label="显存占用情况"
+                value={env?.vramUsage || UNKNOWN}
+              />
+              <StatCard
+                icon={Blocks}
+                label="已装插件"
+                value={env ? String(env.pluginCount ?? 0) : UNKNOWN}
+                hint={env?.plugins?.length ? env.plugins.slice(0, 3).join('、') : undefined}
+              />
+              <FlipShutdownCard />
+            </div>
+            {env && !env.detailed && (
+              <p className="mt-3 text-[11px] text-[var(--text-sub)]">
+                版本号类信息（Pytorch / GPU / 显存）需要启动内核后由后端上报，当前仅展示导入时扫描到的内容。
+              </p>
+            )}
+          </>
+        ) : (
+          <EmptyState
+            icon={FolderOpen}
+            title="尚未获取设备信息"
+            desc="请先添加本地环境，设备信息将在扫描后自动填充。"
+            action={
+              <Button variant="primary" size="sm" onClick={() => setAddEnvOpen(true)}>
+                <FolderPlus size={13} />
+                添加本地环境
+              </Button>
+            }
+          />
+        )}
       </SectionCard>
 
       {/* 快捷入口 */}
@@ -128,12 +189,28 @@ export default function HomePage({ config, onLaunch, running }) {
           </div>
         ) : (
           <EmptyState
-            icon={FolderOpen}
+            icon={FolderPlus}
             title="尚未配置环境"
-            desc="请先在「全局设置 → 基础运行环境」中设置 ComfyUI 根目录与主 Python 路径。"
+            desc="选择已有的 ComfyUI 文件夹即可快速导入，或前往「全局设置 → 基础运行环境」手动填写路径。"
+            action={
+              <div className="flex items-center gap-2 justify-center">
+                <Button variant="primary" size="sm" onClick={() => setAddEnvOpen(true)}>
+                  <FolderPlus size={13} />
+                  添加本地环境
+                </Button>
+              </div>
+            }
           />
         )}
       </SectionCard>
+
+      {/* 添加本地环境 —— 选择文件夹扫描导入 */}
+      <AddEnvironmentModal
+        open={addEnvOpen}
+        onClose={() => setAddEnvOpen(false)}
+        onImport={onImportEnv}
+        onLog={onLog}
+      />
 
       {/* 网盘资料入口弹窗 */}
       <Modal

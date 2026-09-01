@@ -69,7 +69,7 @@ export function EmptyState({ icon: Icon, title, desc, action }) {
 }
 
 /* 数据卡 */
-export function StatCard({ icon: Icon, label, value, gradient = 'from-indigo-500 to-violet-600' }) {
+export function StatCard({ icon: Icon, label, value, hint, gradient = 'from-indigo-500 to-violet-600' }) {
   return (
     <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-card)] p-4 flex items-center gap-3 shadow-[0_2px_12px_var(--shadow-color)]">
       <div
@@ -85,6 +85,7 @@ export function StatCard({ icon: Icon, label, value, gradient = 'from-indigo-500
         <div className="text-lg font-black tnum text-[var(--text-main)] leading-tight truncate">
           {value}
         </div>
+        {hint && <div className="text-[10px] text-[var(--text-sub)] truncate mt-0.5">{hint}</div>}
       </div>
     </div>
   )

@@ -32,7 +32,12 @@ export default function PluginsPage({ plugins = [], autoInstall, onToggleAutoIns
 
   /* 统一出口：日志走 App 终端，提示走 Toast */
   const fire = (action, payload) => onAction?.(action, payload)
-  const ok = (msg) => showToast('success', '操作成功', msg)
+  /*
+   * 插件的启停/卸载/回滚/批量操作都需要后端执行 git 与 pip，
+   * 纯前端无法真实完成，因此统一给出「需要后端」提示，不假装成功。
+   */
+  const ok = (msg) =>
+    showToast('alert', '需要后端', `${msg} —— 该操作需后端执行 git/pip，当前为纯前端预览，未真实执行。`)
 
   const list = keyword.trim()
     ? plugins.filter(

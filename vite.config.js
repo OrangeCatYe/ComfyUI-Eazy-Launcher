@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /*
@@ -12,8 +12,10 @@ const stripModuleForFileProtocol = () => ({
   name: 'strip-module-for-file-protocol',
   apply: 'build',
   enforce: 'post',
-  closeBundle() {
+  /* 产物真正落盘后执行，比 closeBundle 更可靠 */
+  writeBundle() {
     const htmlPath = resolve(process.cwd(), 'dist', 'index.html')
+    if (!existsSync(htmlPath)) return
     let html = readFileSync(htmlPath, 'utf-8')
     html = html.replace(/<script type="module"\s+crossorigin/g, '<script defer')
     html = html.replace(/<script type="module"/g, '<script defer')

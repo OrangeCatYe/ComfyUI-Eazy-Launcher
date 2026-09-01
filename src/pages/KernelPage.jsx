@@ -34,13 +34,17 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
 
   const fire = (action, payload) => onAction?.(action, payload)
 
-  /* 刷新列表：终端输出拉取过程 */
+  /* 刷新列表：需要后端执行 git fetch，前端无法完成 */
   function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
     fire('kernel-refresh')
-    showToast('success', '操作成功', '正在从远程仓库拉取版本列表')
-    setTimeout(() => setRefreshing(false), 1200)
+    showToast(
+      'alert',
+      '需要后端',
+      '拉取版本列表需要后端执行 git 操作，当前为纯前端预览，未真实执行。'
+    )
+    setTimeout(() => setRefreshing(false), 800)
   }
 
   return (
@@ -171,7 +175,11 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
         onConfirm={(url) => {
           setRepoOpen(false)
           fire('kernel-switch-repo', url)
-          showToast('success', '操作成功', `远程仓库已切换为 ${url}`)
+          showToast(
+            'alert',
+            '需要后端',
+            '切换仓库需要后端执行 git remote set-url，当前为纯前端预览，地址仅记录在设置中，未真实切换。'
+          )
         }}
       />
 
@@ -182,7 +190,11 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
         onConfirm={() => {
           fire('kernel-switch-version', switchTarget?.version)
           setSwitchTarget(null)
-          showToast('success', '操作成功', '回滚成功（无需安装依赖）')
+          showToast(
+            'alert',
+            '需要后端',
+            `切换到 ${switchTarget?.version || ''} 需要后端执行 git checkout 与依赖重建，当前为纯前端预览，未真实切换。`
+          )
         }}
         title="切换内核版本"
         message={`确认将内核切换到「${switchTarget?.version || ''}」？切换过程会拉取对应版本并重建依赖。`}

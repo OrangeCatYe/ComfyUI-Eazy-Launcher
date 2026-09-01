@@ -95,12 +95,15 @@ export default function MediaToolsPage() {
                   showToast('alert', '提示', '请先选择本地媒体文件')
                   return
                 }
-                setProcessing(true)
-                showToast('success', '操作成功', `已开始处理：${file}`)
-                setTimeout(() => {
-                  setProcessing(false)
-                  showToast('success', '操作成功', `${actionText.btn} 完成，已保存到本地`)
-                }, 1500)
+                /*
+                 * 音视频转码/抽帧/压缩需要后端调用 ffmpeg，
+                 * 纯前端无法真实完成，因此明确告知，不假装处理成功。
+                 */
+                showToast(
+                  'alert',
+                  '需要后端',
+                  `${actionText.btn}需要后端调用 ffmpeg 处理媒体文件，当前为纯前端预览，未真实处理。`
+                )
               }}
             >
               {processing ? '处理中...' : actionText.btn}

@@ -1,4 +1,5 @@
 ﻿import { useState } from 'react'
+import { scanFilesDirectory, WORKFLOW_EXTS } from '../../lib/envScan'
 import { Workflow, RefreshCw, Rocket, MapPin, ChevronRight, FileJson } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SearchInput } from '../../components/ui/Input'
@@ -33,20 +34,49 @@ export default function WorkflowHubPage() {
     ? workflows.filter((w) => w.name.toLowerCase().includes(keyword.toLowerCase()))
     : workflows
 
-  function handleRefresh() {
+  /*
+   * 刷新列表：真实读取用户选择的目录中的工作流文件
+   */
+  async function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
-    showToast('success', '操作成功', '正在读取 workflows 目录')
-    setTimeout(() => setRefreshing(false), 900)
+    try {
+      const res = await scanFilesDirectory(WORKFLOW_EXTS)
+      if (!res) return
+      if (!res.ok) {
+        showToast('alert', '读取失败', res.reason || '无法读取该目录。')
+        return
+      }
+      setWorkflows(
+        res.files.map((f) => ({
+          name: f.name,
+          size: f.size,
+          path: f.path,
+        }))
+      )
+      showToast(
+        'success',
+        '读取完成',
+        `已从「${res.dir}」真实读取到 ${res.files.length} 个工作流文件。`
+      )
+    } catch (e) {
+      showToast('alert', '读取失败', e?.message || '读取目录时发生错误。')
+    } finally {
+      setRefreshing(false)
+    }
   }
 
-  /* 启动所选工作流：校验必须已选择 */
+  /* 启动所选工作流：需要后端拉起 ComfyUI 并加载工作流 */
   function handleLaunch() {
     if (selectedNames.length === 0) {
       showToast('alert', '提示', '请先选择要启动的工作流')
       return
     }
-    showToast('success', '操作成功', `正在启动 ${selectedNames.length} 个工作流`)
+    showToast(
+      'alert',
+      '需要后端',
+      `启动工作流需要后端拉起 ComfyUI 并加载文件，当前为纯前端预览，未真实启动已选的 ${selectedNames.length} 个工作流。`
+    )
   }
 
   return (
@@ -94,7 +124,15 @@ export default function WorkflowHubPage() {
                 desc={
                   keyword
                     ? '试试更换关键词，或清空搜索条件。'
-                    : '把工作流文件放入 ComfyUI 的 workflows 目录后，点击「刷新列表」读取。'
+                    : '点击左上角「刷新列表」，选择一个包含工作流 JSON 的文件夹即可真实读取。'
+                }
+                action={
+                  keyword ? undefined : (
+                    <Button variant="primary" size="sm" onClick={handleRefresh} disabled={refreshing}>
+                      <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                      选择工作流目录
+                    </Button>
+                  )
                 }
               />
             ) : (

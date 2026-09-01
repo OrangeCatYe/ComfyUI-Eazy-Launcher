@@ -6,6 +6,7 @@ import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { useToast } from '../../components/ui/Toast'
 import { MODEL_DIRS, MODEL_QUICK_FILTERS, MODEL_SORTS } from '../../config/tools'
+import { scanModelDirectory, formatBytes } from '../../lib/envScan'
 import cx from '../../lib/cx'
 
 /*
@@ -37,11 +38,35 @@ export default function ModelManagerPage() {
 
   const selectedNames = models.filter((m) => selected[m.name]).map((m) => m.name)
 
-  function handleRefresh() {
+  /*
+   * 刷新列表：真实读取用户选择的模型目录
+   * 通过目录遍历拿到真实的文件名与大小，不产生任何虚构条目。
+   */
+  async function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
-    showToast('success', '操作成功', `正在读取「${dir}」目录`)
-    setTimeout(() => setRefreshing(false), 900)
+    try {
+      const res = await scanModelDirectory()
+      if (!res) {
+        showToast('alert', '已取消', '未选择目录。')
+        return
+      }
+      if (!res.ok) {
+        setModels([])
+        showToast('alert', '读取失败', res.reason || '无法读取该目录。')
+        return
+      }
+      setModels(res.models)
+      showToast(
+        'success',
+        '读取完成',
+        `已从「${res.dir}」真实读取到 ${res.models.length} 个模型文件。`
+      )
+    } catch (e) {
+      showToast('alert', '读取失败', e?.message || '读取目录时发生错误。')
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   function handleFavorite() {
@@ -49,7 +74,7 @@ export default function ModelManagerPage() {
       showToast('alert', '提示', '请先勾选要设为常用的模型')
       return
     }
-    showToast('success', '操作成功', `已将 ${selectedNames.length} 个模型设为常用`)
+    showToast('success', '操作成功', `已将 ${selectedNames.length} 个模型设为常用（仅记录在本地）`)
   }
 
   function handleDelete() {
@@ -57,7 +82,11 @@ export default function ModelManagerPage() {
       showToast('alert', '提示', '请先勾选要删除的模型')
       return
     }
-    setConfirmDel(true)
+    showToast(
+      'alert',
+      '需要后端',
+      '删除模型文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除。'
+    )
   }
 
   return (
@@ -177,8 +206,14 @@ export default function ModelManagerPage() {
               {models.length === 0 ? (
                 <EmptyState
                   icon={Boxes}
-                  title="当前条件下没有找到模型文件。"
-                  desc="切换左侧模型目录，或调整筛选与搜索条件后重试。"
+                  title="尚未读取模型目录"
+                  desc="点击「刷新列表」选择一个模型文件夹，将真实读取其中的模型文件与大小。"
+                  action={
+                    <Button variant="primary" size="sm" onClick={handleRefresh} disabled={refreshing}>
+                      <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                      选择模型目录
+                    </Button>
+                  }
                 />
               ) : (
                 <div className="space-y-1">
@@ -198,8 +233,8 @@ export default function ModelManagerPage() {
                       <span className="text-[11px] font-black text-[var(--text-main)] truncate">
                         {m.name}
                       </span>
-                      <span className="ml-auto text-[11px] tnum text-[var(--text-sub)]">
-                        {m.size}
+                      <span className="ml-auto text-[11px] tnum text-[var(--text-sub)] shrink-0">
+                        {formatBytes(m.size)}
                       </span>
                     </label>
                   ))}

@@ -8,7 +8,8 @@ import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
 import { SettingsProvider, useSettings } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
-import { pickDirectory, pickFile } from './lib/picker'
+import { pickDirectory, pickDirectoryHandle, supportsDirectoryPicker } from './lib/picker'
+import { readLS, writeLS, LS } from './lib/storage'
 import { createLogger } from './lib/logger'
 import {
   selectRequirementsFile,
@@ -49,17 +50,9 @@ const TOOL_ROUTES = {
   ABOUT_AUTHOR: AboutAuthorPage,
 }
 
-/* 初恋部署静态数据（截图实证：驱动 591.44 / RTX 4080 / Python 3.12 / Torch 2.10.0+cu128） */
-const DEPLOY_DRIVER = {
-  version: '591.44',
-  gpu: 'NVIDIA GeForce RTX 4080',
-  arch: 'ada',
-}
-
-const DEPLOY_VERSIONS = {
-  python: '3.12',
-  torch: '2.10.0+cu128',
-}
+/* 初恋部署：驱动与版本信息需后端探测，未接入前保持为空，由页面展示未获取态 */
+const DEPLOY_DRIVER = {}
+const DEPLOY_VERSIONS = {}
 
 const PAGE_META = {
   home: { title: '首页', subtitle: '设备状态与快捷入口' },
@@ -76,7 +69,7 @@ const TOOLS_WITH_ICONS = TOOLS.map((t) => ({ ...t, icon: ICONS[t.icon] || ICONS.
 
 function AppShell() {
   /* 环境路径取自统一设置层（全局设置 → 系统与网络配置 → 基础运行环境） */
-  const { settings } = useSettings()
+  const { settings, set } = useSettings()
   const comfyRoot = settings.comfyRoot || ''
   const pythonPath = settings.pythonPrimary || ''
 
@@ -86,6 +79,9 @@ function AppShell() {
   /* 内核运行态：running 为真时终端显示「停止运行」与 PID */
   const [running, setRunning] = useState(false)
   const [pid, setPid] = useState(null)
+
+  /* 本地环境扫描结果（真实数据，来自用户选择的目录） */
+  const [env, setEnv] = useState(() => readLS(LS.ENV, null))
   /* 初恋部署：进度与阶段状态 */
   const [deployProgress, setDeployProgress] = useState(0)
   const [deployStatus, setDeployStatus] = useState('待命')
@@ -97,13 +93,50 @@ function AppShell() {
   /* 动作标记：记录最后一次「恢复快照依赖」动作阶段 */
   const lastAction = useRef(null)
 
+  /* ================= 本地环境导入 ================= */
+
+  /*
+   * 用户从首页「添加本地环境」导入：
+   *   - 路径写入全局设置（唯一的路径来源，settingsStore）
+   *   - 扫描结果写入 env，供首页设备信息展示
+   * 两者都持久化，刷新后保持。
+   */
+  function handleImportEnv(payload) {
+    set('comfyRoot', payload.comfyRoot)
+    if (payload.pythonPath) set('pythonPrimary', payload.pythonPath)
+
+    const next = {
+      verified: payload.verified,
+      pluginCount: payload.pluginCount || 0,
+      plugins: payload.plugins || [],
+      pythonPath: payload.pythonPath || '',
+      comfyRoot: payload.comfyRoot,
+      pythonSource: payload.pythonSource || '',
+      hasGit: Boolean(payload.hasGit),
+      modelsDirs: payload.modelsDirs || [],
+      scannedAt: new Date().toISOString(),
+      /* 以下需后端探测，扫描阶段拿不到，保持 null 表示未获取 */
+      pythonVersion: null,
+      torchVersion: null,
+      gitVersion: null,
+      gpuName: null,
+      vramUsage: null,
+      detailed: false,
+    }
+    setEnv(next)
+    writeLS(LS.ENV, next)
+  }
+
   /* ================= 顶栏图标按钮 → 终端日志 ================= */
   function handleTopBarAction(action, payload) {
     setTerminalOpen(true)
     switch (action) {
       case 'topbar-refresh':
-        push({ level: 'cmd', text: '\n>>> 正在刷新页面数据...' })
-        push({ level: 'success', text: '>>> 刷新完成' })
+        push({ level: 'cmd', text: '\n>>> 刷新页面数据' })
+        push({
+          level: 'info',
+          text: '>>> 页面数据来自本地设置与已扫描的环境信息，重新读取完成。若需更新设备信息，请重新扫描环境。',
+        })
         break
       case 'topbar-open-dir':
         if (!settings.comfyRoot) {
@@ -128,18 +161,25 @@ function AppShell() {
     setTerminalOpen(true)
     switch (action) {
       case 'kernel-refresh':
-        push({ level: 'cmd', text: '\n>>> 正在从远程仓库拉取版本列表...' })
-        push({ level: 'info', text: '>>> git fetch --tags' })
-        push({ level: 'success', text: '>>> 版本列表已更新' })
+        push({ level: 'cmd', text: '\n>>> 刷新版本列表' })
+        push({
+          level: 'warning',
+          text: '>>> 需要后端执行 git fetch --tags，当前为纯前端预览，未真实拉取，因此列表保持为空。',
+        })
         break
       case 'kernel-switch-repo':
         push({ level: 'cmd', text: `\n>>> 切换远程仓库: ${payload}` })
-        push({ level: 'success', text: '>>> 仓库切换完成' })
+        push({
+          level: 'warning',
+          text: '>>> 需要后端执行 git remote set-url，当前未真实切换，地址仅记录在本地设置中。',
+        })
         break
       case 'kernel-switch-version':
-        push({ level: 'cmd', text: `\n>>> 正在切换内核版本: ${payload}` })
-        push({ level: 'info', text: '>>> 正在拉取对应提交...' })
-        push({ level: 'success', text: '>>> 内核切换完成' })
+        push({ level: 'cmd', text: `\n>>> 切换内核版本: ${payload}` })
+        push({
+          level: 'warning',
+          text: '>>> 需要后端执行 git checkout 与依赖重建，当前未真实切换。',
+        })
         break
       default:
         push({ level: 'info', text: `>>> ${action}` })
@@ -151,41 +191,55 @@ function AppShell() {
     setTerminalOpen(true)
     switch (action) {
       case 'install-plugin':
-        push({ level: 'cmd', text: `\n>>> 正在安装插件: ${payload}` })
-        push({ level: 'success', text: '>>> 插件安装完成' })
+        push({ level: 'cmd', text: `\n>>> 安装插件: ${payload}` })
+        push({
+          level: 'warning',
+          text: '>>> 需要后端执行 git clone，当前为纯前端预览，未真实安装。',
+        })
         break
       case 'plugin-switch':
       case 'plugin-log':
-        push({ level: 'info', text: typeof payload === 'string' && payload.startsWith('>>>') ? payload : `>>> 正在切换插件版本: ${payload}` })
-        push({ level: 'success', text: '>>> 切换完成' })
+        push({ level: 'info', text: typeof payload === 'string' && payload.startsWith('>>>') ? payload : `>>> 切换插件版本: ${payload}` })
+        push({ level: 'warning', text: '>>> 需要后端执行 git checkout，当前未真实切换。' })
         break
       case 'plugin-toggle':
-        push({ level: 'info', text: `>>> 正在切换插件状态: ${payload}` })
-        push({ level: 'success', text: '>>> 状态切换完成' })
+        push({ level: 'info', text: `>>> 切换插件状态: ${payload}` })
+        push({ level: 'warning', text: '>>> 需要后端操作插件目录，当前未真实改变状态。' })
         break
       case 'plugin-uninstall':
-        push({ level: 'warning', text: `>>> 正在卸载插件: ${payload}` })
-        push({ level: 'success', text: '>>> 卸载完成' })
+        push({ level: 'warning', text: `>>> 卸载插件: ${payload}` })
+        push({ level: 'warning', text: '>>> 需要后端删除插件目录，当前未真实卸载。' })
         break
-      case 'batch-export':
-        push({ level: 'cmd', text: `\n>>> 批量导出 ${payload.length} 个插件` })
+      case 'batch-export': {
+        /* 批量导出清单是纯前端可真实完成的：把选中项写成文件下载 */
+        push({ level: 'cmd', text: `\n>>> 批量导出 ${payload.length} 个插件清单` })
+        const text = payload.join('\n')
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+        a.href = url
+        a.download = `kk-plugins-${ts}.txt`
+        a.click()
+        URL.revokeObjectURL(url)
         payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
-        push({ level: 'success', text: '>>> 批量导出完成' })
+        push({ level: 'success', text: `>>> 已真实导出 ${payload.length} 个插件清单到 kk-plugins-${ts}.txt` })
         break
+      }
       case 'batch-update':
         push({ level: 'cmd', text: `\n>>> 批量更新 ${payload.length} 个插件` })
-        payload.forEach((n) => push({ level: 'info', text: `>>> 正在更新 ${n}...` }))
-        push({ level: 'success', text: '>>> 批量更新完成' })
+        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
+        push({ level: 'warning', text: '>>> 需要后端执行 git pull，当前未真实更新。' })
         break
       case 'batch-toggle':
         push({ level: 'cmd', text: `\n>>> 批量开关 ${payload.length} 个插件` })
         payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
-        push({ level: 'success', text: '>>> 批量开关完成' })
+        push({ level: 'warning', text: '>>> 需要后端操作插件目录，当前未真实改变状态。' })
         break
       case 'batch-uninstall':
         push({ level: 'cmd', text: `\n>>> 批量卸载 ${payload.length} 个插件` })
-        payload.forEach((n) => push({ level: 'warning', text: `>>> 正在卸载 ${n}...` }))
-        push({ level: 'success', text: '>>> 批量卸载完成' })
+        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
+        push({ level: 'warning', text: '>>> 需要后端删除插件目录，当前未真实卸载。' })
         break
       default:
         push({ level: 'info', text: `>>> ${action}` })
@@ -237,8 +291,11 @@ function AppShell() {
         return (
           <HomePage
             config={{ comfyRoot, pythonPath }}
+            env={env}
             running={running}
             onLaunch={handleLaunch}
+            onImportEnv={handleImportEnv}
+            onLog={push}
           />
         )
       case 'kernel':
@@ -295,7 +352,7 @@ function AppShell() {
     if (name === 'restoreSnapshot') return runRestoreSnapshot()
 
     const map = {
-      speedTest: '>>> 正在启动镜像源测速...',
+      speedTest: '>>> 正在启动镜像源测速（真实网络请求）...',
       analyzeReq: '>>> 正在分析依赖文件...',
       checkConflict: '>>> 正在检测冲突与缺失...',
       installDeps: '>>> 正在安装依赖...',
@@ -307,8 +364,12 @@ function AppShell() {
       backupEnv: '>>> 正在备份当前环境...',
       restoreSnapshot: '>>> 请选择要恢复的快照文件...',
       applyMirror: `>>> 已应用镜像源：${payload ?? ''}`,
-      speedTestOne: ` - ${payload?.mirror ?? ''} (${payload?.secs ?? ''}秒)`,
-      speedTestDone: `>>> 测速完成!检测到最快源为:${payload?.mirror ?? ''}(${payload?.secs ?? ''}秒)\n已自动切换。`,
+      speedTestNote:
+        '>>> 说明：耗时为浏览器到各源的真实往返延迟；某源不可达会如实标记，不以随机数填充。',
+      speedTestOne: ` - ${payload?.mirror ?? ''}  ${payload?.secs ?? ''} 秒`,
+      speedTestFail: ` - ${payload?.mirror ?? ''}  不可达（${payload?.reason ?? '未知原因'}）`,
+      speedTestAllFail: '>>> 测速结束：所有镜像源均不可达，未做切换。请检查网络连接后重试。',
+      speedTestDone: `>>> 测速完成！最快源为：${payload?.mirror ?? ''}（${payload?.secs ?? ''} 秒），已自动切换。`,
       copyLog: '>>> 日志信息已复制到剪贴板',
       copyLogFail: '>>> 复制失败，请手动选择日志文本复制',
       /* 第三方库管理与终端示例命令 */
@@ -342,27 +403,28 @@ function AppShell() {
     push({ level: 'cmd', text: '\n>>> 启动环境比较工具...' })
 
     push({ level: 'info', text: '步骤 1/3: 请选择基准快照文件 (旧版本)...' })
-    const base = await selectRequirementsFile()
-    if (!base) {
+    const baseFile = await selectRequirementsFile()
+    if (!baseFile) {
       push({ level: 'warning', text: '操作已取消。' })
       return
     }
-    push({ level: 'info', text: `基准文件: ${base}` })
+    push({ level: 'info', text: `基准文件: ${baseFile.name}` })
 
     push({ level: 'info', text: '步骤 2/3: 请选择目标快照文件 (新版本)...' })
-    const target = await selectRequirementsFile()
-    if (!target) {
+    const targetFile = await selectRequirementsFile()
+    if (!targetFile) {
       push({ level: 'warning', text: '操作已取消。' })
       return
     }
-    push({ level: 'info', text: `目标文件: ${target}` })
+    push({ level: 'info', text: `目标文件: ${targetFile.name}` })
 
     push({ level: 'info', text: '步骤 3/3: 正在分析差异...' })
 
     try {
-      const diff = await compareSnapshots(base, target)
+      /* 真实解析两份文件内容并比对，结果为实际差异 */
+      const diff = compareSnapshots(baseFile.text, targetFile.text)
       /* 依赖文件分析头 */
-      push({ level: 'cmd', text: `\n>>> 正在分析依赖文件: ${target}` })
+      push({ level: 'cmd', text: `\n>>> 正在分析依赖文件: ${targetFile.name}` })
       push({
         level: 'info',
         text: [
@@ -379,7 +441,7 @@ function AppShell() {
       push({
         level: 'success',
         text: [
-          `\n🔍 比较结果: ${base} → ${target}`,
+          `\n🔍 比较结果: ${baseFile.name} → ${targetFile.name}`,
           ` 新增 ${diff.added.length} 个，移除 ${diff.removed.length} 个，变更 ${diff.changed.length} 个`,
         ].join('\n'),
       })
@@ -405,8 +467,8 @@ function AppShell() {
   }
 
   /*
-   * 查询引用插件 —— 前置校验（唯一弹窗）+ 终端输出
-   * 校验：库名为空 / ComfyUI 路径未设置
+   * 查询引用插件 —— 前置校验 + 真实扫描 custom_nodes 下各插件的 requirements.txt
+   * 校验：库名为空 / 尚未导入本地环境
    */
   async function runFindRefs(libName) {
     const lib = (libName || '').trim()
@@ -414,28 +476,48 @@ function AppShell() {
       window.alert('提示\n请先输入要查询的库名')
       return
     }
-    if (!comfyRoot) {
-      window.alert('提示\nComfyUI 路径未设置')
+    if (!env?.comfyRoot) {
+      window.alert('提示\n尚未导入本地环境，请先在首页点击「添加本地环境」。')
       return
     }
 
     setTerminalOpen(true)
     push({ level: 'cmd', text: `\n>>> 正在扫描引用了 [${lib}] 的插件...` })
 
+    /* 需要重新取得目录句柄才能遍历（句柄无法持久化） */
+    if (!supportsDirectoryPicker()) {
+      push({
+        level: 'warning',
+        text: '>>> 当前浏览器不支持目录遍历，无法扫描插件依赖。请使用 Chrome / Edge 打开。',
+      })
+      return
+    }
+
+    push({ level: 'info', text: '>>> 请选择 ComfyUI 根目录下的 custom_nodes 文件夹...' })
+    let handle
     try {
-      const plugins = await findLibInPlugins(comfyRoot, lib)
+      handle = await pickDirectoryHandle()
+    } catch (e) {
+      push({ level: 'error', text: `>>> 目录选择失败：${e?.message || e}` })
+      return
+    }
+    if (!handle) {
+      push({ level: 'warning', text: '操作已取消。' })
+      return
+    }
+
+    try {
+      const { plugins, reason, scanned } = await findLibInPlugins(handle, lib)
       if (plugins.length === 0) {
-        push({
-          level: 'info',
-          text: `🔍 查询结果: 未发现任何插件显式依赖 [${lib}]。`,
-        })
+        push({ level: 'info', text: `🔍 查询结果: ${reason || `未发现任何插件显式依赖 [${lib}]。`}` })
+        if (scanned) push({ level: 'info', text: ` (已扫描 ${scanned} 个插件目录)` })
         return
       }
       push({
         level: 'info',
         text: `🔍 查询结果: 发现 ${plugins.length} 个插件依赖此库:\n${plugins
           .map((p) => ` - ${p}`)
-          .join('\n')}\n(基于 requirements.txt 声明检测)`,
+          .join('\n')}\n(基于真实读取各插件 requirements.txt 的声明)`,
       })
     } catch (e) {
       push({ level: 'error', text: `查询失败: ${e?.message || e}` })
@@ -443,30 +525,18 @@ function AppShell() {
   }
 
   /*
-   * 恢复快照依赖 —— 页面内差异表 → 勾选 → 执行 → 终端日志
-   * 唯一在页面内渲染差异表的功能
+   * 恢复快照依赖
+   * 需要真实执行 pip 安装/卸载，纯前端无法完成，
+   * 因此明确告知用户，不再弹出伪造的差异表。
    */
   async function runRestoreSnapshot() {
     setTerminalOpen(true)
-    push({ level: 'cmd', text: '\n>>> 请选择要恢复的快照文件...' })
-
-    const snapshotPath = await selectRequirementsFile()
-    if (!snapshotPath) {
-      push({ level: 'warning', text: '操作已取消。' })
-      return
-    }
-    push({ level: 'info', text: `快照文件: ${snapshotPath}` })
-    push({ level: 'info', text: '>>> 正在预览恢复差异...' })
-
-    try {
-      const diff = await previewRestoreSnapshot(pythonPath, snapshotPath)
-      lastAction.current = '恢复快照依赖-预览'
-      setRestoreDiff({ ...diff, snapshotPath })
-      setRestoreOpen(true)
-      push({ level: 'success', text: '>>> 差异预览完成，请在弹窗中确认要恢复的条目。' })
-    } catch (e) {
-      push({ level: 'error', text: `>>> 预览失败: ${e?.message || e}` })
-    }
+    push({ level: 'cmd', text: '\n>>> 恢复快照依赖' })
+    push({
+      level: 'warning',
+      text: '>>> 该功能需要后端执行 pip 安装/卸载，当前为纯前端预览，无法完成。',
+    })
+    push({ level: 'info', text: '>>> 接入后端后，此处将列出真实的恢复差异并支持勾选执行。' })
   }
 
   /* 执行恢复快照依赖 */
@@ -486,7 +556,9 @@ function AppShell() {
     }
   }
 
-  /* 启动 / 停止内核（无后端阶段：本地模拟运行态与 PID） */
+  /* 启动 / 停止内核
+   * 无后端阶段：不编造 PID 与假日志，只记录真实发生的状态变化，
+   * 并明确告知用户数据需后端接入后才会真实产生。 */
   function handleLaunch() {
     if (running) {
       setRunning(false)
@@ -494,20 +566,16 @@ function AppShell() {
       push({ level: 'warning', text: '>>> 内核已停止运行' })
       return
     }
-    const fakePid = 1000 + Math.floor(Math.random() * 9000)
     setRunning(true)
-    setPid(fakePid)
     setTerminalOpen(true)
-    push({ level: 'cmd', text: '>>> 正在启动 ComfyUI 内核...' })
-    push({ level: 'info', text: `[INFO] 进程已创建，PID: ${fakePid}` })
-    setTimeout(() => {
-      push({ level: 'info', text: '[INFO] Checkpoint files will always be loaded safely.' })
-      push({ level: 'info', text: '[INFO] Total VRAM 16376 MB, total RAM 130701 MB' })
-    }, 400)
-    setTimeout(() => {
-      push({ level: 'info', text: '[INFO] Device: cuda:0 NVIDIA GeForce RTX 4080 : cudaMallocAsync' })
-      push({ level: 'success', text: '[INFO] ComfyUI 启动完成，可点击「打开浏览器」访问' })
-    }, 900)
+    push({ level: 'cmd', text: `>>> 正在启动 ComfyUI 内核...` })
+    push({ level: 'info', text: `[INFO] 工作目录: ${comfyRoot || '未配置'}` })
+    push({ level: 'info', text: `[INFO] 解释器: ${pythonPath || '未配置'}` })
+    push({
+      level: 'warning',
+      text: '[INFO] 当前为纯前端预览，未连接后端进程，因此不会真实拉起 ComfyUI，也不会产生 PID。',
+    })
+    push({ level: 'info', text: '[INFO] 接入后端后，此处将输出真实的启动日志与进程号。' })
   }
 
   /* AI 日志分析：扫描当前日志给出摘要（本地模拟） */
@@ -550,34 +618,26 @@ function AppShell() {
     })
   }
 
-  /* 初恋部署：按阶段推进进度（无后端阶段本地模拟） */
+  /*
+   * 初恋部署
+   * 无后端阶段：不推进假进度、不虚构硬件版本。
+   * 用户点击后明确告知需要后端，并输出真实的前置校验结果。
+   */
   function handleDeploy() {
-    if (deployProgress > 0 && deployProgress < 100) return
-
-    const steps = [
-      { at: 10, status: '创建部署目录', text: '>>> 正在创建部署目录...' },
-      { at: 35, status: '下载 Python', text: '>>> 正在下载并解压 Python 运行环境...' },
-      { at: 50, status: '创建虚拟环境', text: '>>> 正在创建虚拟环境...' },
-      { at: 75, status: '安装 Pytorch', text: '>>> 正在安装 Pytorch+Cuda 套件（耗时较长）...' },
-      { at: 90, status: '拉取仓库', text: '>>> 正在拉取 ComfyUI 仓库...' },
-      { at: 100, status: '完成', text: '>>> 正在安装依赖并收尾...' },
-    ]
-
-    setDeployProgress(0)
-    setDeployStatus(steps[0].status)
     setTerminalOpen(true)
-    push({ level: 'cmd', text: '\n>>> 开始部署 ComfyUI 整合包...' })
+    push({ level: 'cmd', text: '\n>>> 正在校验部署前置条件...' })
 
-    steps.forEach((s, i) => {
-      setTimeout(() => {
-        setDeployProgress(s.at)
-        setDeployStatus(s.status)
-        push({ level: 'info', text: s.text })
-        if (i === steps.length - 1) {
-          push({ level: 'success', text: '>>> 部署完成！可以启动内核了。' })
-        }
-      }, (i + 1) * 700)
+    if (!deployDir) {
+      push({ level: 'warning', text: '>>> 尚未选择部署目录，请先选择。' })
+      return
+    }
+    push({ level: 'info', text: ` - 部署目录：${deployDir}` })
+    push({ level: 'info', text: ' - 目录已选择：通过' })
+    push({
+      level: 'warning',
+      text: '>>> 当前为纯前端预览，未连接后端，无法执行真实的下载与安装流程，因此不会推进部署进度。',
     })
+    push({ level: 'info', text: '>>> 接入后端后，此处将按真实阶段输出部署日志与进度。' })
   }
 
   /* 生成日志：把当前日志导出为 .log 文件 */

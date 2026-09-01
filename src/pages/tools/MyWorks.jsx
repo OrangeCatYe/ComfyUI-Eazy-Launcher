@@ -5,6 +5,7 @@ import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { useToast } from '../../components/ui/Toast'
 import { WORKS_TYPE_FILTERS, WORKS_SORT } from '../../config/tools'
+import { scanFilesDirectory, MEDIA_EXTS, formatBytes } from '../../lib/envScan'
 
 /*
  * 我的作品 —— 依据「我的作品.png」
@@ -28,15 +29,40 @@ export default function MyWorksPage() {
   const [selected, setSelected] = useState({})
   const [refreshing, setRefreshing] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [currentDir, setCurrentDir] = useState('')
   const { showToast } = useToast()
 
   const selectedNames = files.filter((f) => selected[f.name]).map((f) => f.name)
 
-  function handleRefresh() {
+  /*
+   * 刷新列表：真实读取用户选择的目录（默认按媒体文件过滤）
+   * 文件条目与大小均为真实读取结果，不产生任何虚构条目。
+   */
+  async function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
-    showToast('success', '操作成功', '正在读取 output 目录')
-    setTimeout(() => setRefreshing(false), 900)
+    try {
+      const res = await scanFilesDirectory(MEDIA_EXTS)
+      if (!res) return
+      if (!res.ok) {
+        showToast('alert', '读取失败', res.reason || '无法读取该目录。')
+        return
+      }
+      setFiles(
+        res.files.map((f) => ({
+          name: f.name,
+          size: f.size,
+          /* File 句柄不提供稳定的修改时间，此处不做虚构，UI 显示为 — */
+          date: '—',
+        }))
+      )
+      setCurrentDir(res.dir)
+      showToast('success', '读取完成', `已从「${res.dir}」真实读取到 ${res.files.length} 个媒体文件。`)
+    } catch (e) {
+      showToast('alert', '读取失败', e?.message || '读取目录时发生错误。')
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   function handleDelete() {
@@ -44,11 +70,15 @@ export default function MyWorksPage() {
       showToast('alert', '提示', '请先勾选要删除的文件')
       return
     }
-    setConfirmDel(true)
+    showToast(
+      'alert',
+      '需要后端',
+      `删除文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除已选的 ${selectedNames.length} 项。`
+    )
   }
 
   function handleUp() {
-    showToast('alert', '提示', '当前已在根目录 output')
+    showToast('alert', '提示', '当前已在所选目录的根层级')
   }
 
   return (
@@ -59,7 +89,7 @@ export default function MyWorksPage() {
           上一级
         </Button>
         <span className="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 text-[11px] font-black">
-          output
+          {currentDir || '未选择目录'}
         </span>
         <span className="text-[11px] text-[var(--text-sub)]">Ctrl/Shift 多选 · Ctrl+C 复制</span>
 
@@ -70,7 +100,7 @@ export default function MyWorksPage() {
           </Button>
           <Button variant="glass" size="sm" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? '读取中...' : '刷新'}
+            {refreshing ? '读取中...' : currentDir ? '刷新' : '选择目录'}
           </Button>
         </div>
       </div>
@@ -106,8 +136,20 @@ export default function MyWorksPage() {
           {files.length === 0 ? (
             <EmptyState
               icon={ImageIcon}
-              title="暂无文件"
-              desc="生成的图片与视频会保存在当前目录，点击「刷新」重新读取。"
+              title={currentDir ? '该目录下没有找到媒体文件' : '尚未选择目录'}
+              desc={
+                currentDir
+                  ? `已在「${currentDir}」中扫描完毕，未找到图片或视频文件。`
+                  : '点击右上角「选择目录」，选择一个包含图片或视频的文件夹后即可真实读取其中的文件。'
+              }
+              action={
+                currentDir ? undefined : (
+                  <Button variant="primary" size="sm" onClick={handleRefresh} disabled={refreshing}>
+                    <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                    选择目录
+                  </Button>
+                )
+              }
             />
           ) : (
             <div className="space-y-1">
@@ -138,7 +180,7 @@ export default function MyWorksPage() {
           <span className="text-[11px] text-[var(--text-sub)]">
             当前目录：
             <span className="font-mono text-[var(--text-main)]">
-              C:\ComfyUI\ComfyUI\ComfyUI\output
+              {currentDir || '尚未选择目录'}
             </span>
           </span>
         </div>

@@ -19,6 +19,39 @@ import { SectionCard, FieldRow } from '../components/ui/Blocks'
 import { pickFile } from '../lib/picker'
 
 /*
+ * 真实测量单个镜像源的往返耗时
+ *
+ * 用 no-cors 模式请求，规避跨域限制：能发出请求即代表网络可达，
+ * performance.now() 前后差值就是真实的往返耗时。
+ * 若请求被拒绝（断网 / DNS 失败 / 源不可达），如实返回不可达。
+ */
+async function measureMirror(mirror, timeoutMs = 6000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const t0 = performance.now()
+  try {
+    await fetch(mirror.url, {
+      method: 'GET',
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    const ms = performance.now() - t0
+    return { name: mirror.name, reachable: true, ms, secs: (ms / 1000).toFixed(3) }
+  } catch (e) {
+    const aborted = e?.name === 'AbortError'
+    return {
+      name: mirror.name,
+      reachable: false,
+      ms: Infinity,
+      reason: aborted ? `超时（>${timeoutMs}ms）` : '不可达（网络错误或被拦截）',
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/*
  * 环境依赖 —— 依据「环境依赖.png」
  *
  * 结构（5 个区块，全部为页面内操作，输出走右侧终端）：
@@ -35,7 +68,17 @@ import { pickFile } from '../lib/picker'
  * 数据策略：空状态优先
  */
 
-const MIRRORS = ['阿里云', '清华大学', '腾讯云', '华为云', '官方源']
+/*
+ * 镜像源列表 —— 每项都带真实可请求的 URL
+ * 测速结果来自真实的 HTTP 请求往返耗时，不做任何随机生成。
+ */
+const MIRRORS = [
+  { name: '阿里云', url: 'https://mirrors.aliyun.com/pypi/simple/' },
+  { name: '清华大学', url: 'https://pypi.tuna.tsinghua.edu.cn/simple/' },
+  { name: '腾讯云', url: 'https://mirrors.cloud.tencent.com/pypi/simple/' },
+  { name: '华为云', url: 'https://repo.huaweicloud.com/repository/pypi/simple/' },
+  { name: '官方源', url: 'https://pypi.org/simple/' },
+]
 
 export default function DepsPage({ onAction, logs = [] }) {
   const [mirror, setMirror] = useState(MIRRORS[0])
@@ -48,28 +91,43 @@ export default function DepsPage({ onAction, logs = [] }) {
 
   const fire = (name, payload) => onAction && onAction(name, payload)
 
-  /* 镜像源测速：逐个测速后取最快（无后端阶段本地模拟） */
-  const runSpeedTest = () => {
+  /*
+   * 镜像源测速 —— 真实发起 HTTP 请求，测量往返耗时
+   *
+   * 说明：这是一次真实的网络请求，测的是浏览器到各镜像源的实际延迟。
+   * 若某个源因跨域策略（CORS）无法从前端直接访问，则标记为「不可达」，
+   * 不用随机数代替——测不到就是测不到，如实呈现。
+   */
+  const runSpeedTest = async () => {
     if (testing) return
     setTesting(true)
+    setSpeed(null)
     fire('speedTest')
-    let i = 0
-    const timer = setInterval(() => {
-      if (i >= MIRRORS.length) {
-        clearInterval(timer)
-        /* 取模拟结果中最快的一个 */
-        const secs = MIRRORS.map(() => (Math.random() * 1.2 + 0.2).toFixed(3))
-        const fastest = secs.reduce((best, s) => (Number(s) < Number(best) ? s : best), secs[0])
-        const idx = secs.indexOf(fastest)
-        setMirror(MIRRORS[idx])
-        setSpeed(fastest)
-        setTesting(false)
-        fire('speedTestDone', { mirror: MIRRORS[idx], secs: fastest })
-        return
+    fire('speedTestNote')
+
+    const results = []
+    for (const m of MIRRORS) {
+      const r = await measureMirror(m)
+      results.push(r)
+      if (r.reachable) {
+        fire('speedTestOne', { mirror: m.name, secs: r.secs })
+      } else {
+        fire('speedTestFail', { mirror: m.name, reason: r.reason })
       }
-      fire('speedTestOne', { mirror: MIRRORS[i], secs: (Math.random() * 1.2 + 0.2).toFixed(3) })
-      i += 1
-    }, 320)
+    }
+
+    /* 只在真实测通的源里选最快的；一个都不通则不切换 */
+    const ok = results.filter((r) => r.reachable)
+    if (ok.length === 0) {
+      setSpeed(null)
+      fire('speedTestAllFail')
+    } else {
+      const best = ok.reduce((a, b) => (a.ms < b.ms ? a : b))
+      setMirror(best.name)
+      setSpeed(best.secs)
+      fire('speedTestDone', { mirror: best.name, secs: best.secs })
+    }
+    setTesting(false)
   }
 
   /* 复制日志信息 */

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   FolderOpen,
   FileText,
@@ -9,6 +9,8 @@ import {
   ChevronUp,
   Network,
   Zap,
+  RefreshCw,
+  Upload,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { TextInput } from '../components/ui/Input'
@@ -236,6 +238,49 @@ function PerformanceTab() {
 function SoftwareTab() {
   const { settings, set } = useSettings()
   const { showToast } = useToast()
+  const [lanIp, setLanIp] = useState('')
+  const [ipLoading, setIpLoading] = useState(false)
+  const [proxyTesting, setProxyTesting] = useState(false)
+
+  /*
+   * 真实获取本机局域网 IP
+   * 通过 WebRTC 建立一次本地候选连接，从 ICE candidate 里读真实内网地址。
+   * 这是浏览器环境下唯一无需后端即可拿到局域网 IP 的方式。
+   * 拿不到就保持空，显示为 127.0.0.1，不做任何虚构。
+   */
+  const refreshLanIp = useCallback(() => {
+    setIpLoading(true)
+    let found = ''
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] })
+      pc.createDataChannel('probe')
+      pc.onicecandidate = (e) => {
+        if (!e.candidate || found) return
+        const m = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/)
+        if (m && m[1] !== '127.0.0.1') {
+          found = m[1]
+          setLanIp(found)
+        }
+      }
+      pc.createOffer()
+        .then((o) => pc.setLocalDescription(o))
+        .catch(() => {})
+      setTimeout(() => {
+        try {
+          pc.close()
+        } catch {}
+        setIpLoading(false)
+        if (found) {
+          showToast('success', '获取成功', `已探测到局域网地址 ${found}`)
+        } else {
+          showToast('alert', '未获取到', '未探测到局域网网卡地址，继续使用 127.0.0.1。')
+        }
+      }, 2500)
+    } catch {
+      setIpLoading(false)
+      showToast('alert', '不支持', '当前浏览器不支持自动探测局域网地址。')
+    }
+  }, [showToast])
 
   return (
     <div className="space-y-5">
@@ -408,25 +453,22 @@ function SoftwareTab() {
                 允许局域网内其它设备通过 IP 地址访问您的 ComfyUI
               </span>
             </div>
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-black text-[var(--text-sub)]">本机 IP 地址：</span>
               <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-lighter)] border border-[var(--border-main)] text-[11px] font-mono text-[var(--text-main)]">
-                http://127.0.0.1:{settings.port || '8188'}
+                {lanIp
+                  ? `http://${lanIp}:${settings.port || '8188'}`
+                  : `http://127.0.0.1:${settings.port || '8188'}`}
               </span>
-              <Button
-                variant="glass"
-                size="sm"
-                onClick={() =>
-                  showToast('success', '操作成功', '本机 IP 地址已刷新')
-                }
-              >
-                刷新
+              <Button variant="glass" size="sm" disabled={ipLoading} onClick={refreshLanIp}>
+                <RefreshCw size={13} className={ipLoading ? 'animate-spin' : ''} />
+                {ipLoading ? '获取中…' : '刷新'}
               </Button>
               <Button
                 variant="glass"
                 size="sm"
                 onClick={async () => {
-                  const url = `http://127.0.0.1:${settings.port || '8188'}`
+                  const url = `http://${lanIp || '127.0.0.1'}:${settings.port || '8188'}`
                   try {
                     await navigator.clipboard.writeText(url)
                     showToast('success', '操作成功', `已复制 ${url}`)
@@ -437,7 +479,45 @@ function SoftwareTab() {
               >
                 复制
               </Button>
+              <Button
+                variant="glass"
+                size="sm"
+                disabled={ipLoading}
+                onClick={async () => {
+                  const url = `http://127.0.0.1:${settings.port || '8188'}`
+                  setIpLoading(true)
+                  try {
+                    const controller = new AbortController()
+                    const timer = setTimeout(() => controller.abort(), 4000)
+                    await fetch(url, {
+                      method: 'GET',
+                      mode: 'no-cors',
+                      cache: 'no-store',
+                      signal: controller.signal,
+                    })
+                    clearTimeout(timer)
+                    showToast('success', '服务可达', `${url} 有响应，ComfyUI 服务可能已启动。`)
+                  } catch (e) {
+                    showToast(
+                      'alert',
+                      '服务未响应',
+                      e?.name === 'AbortError'
+                        ? `${url} 连接超时，ComfyUI 服务可能未启动。`
+                        : `${url} 无响应，ComfyUI 服务可能未启动。`
+                    )
+                  } finally {
+                    setIpLoading(false)
+                  }
+                }}
+              >
+                探测服务
+              </Button>
             </div>
+            <p className="mt-2 text-[10px] text-[var(--text-sub)]">
+              {lanIp
+                ? '局域网地址由浏览器真实探测得到；若只显示 127.0.0.1，说明未探测到局域网网卡。'
+                : '尚未获取局域网地址，点击「刷新」由浏览器探测。'}
+            </p>
           </div>
 
           {/* 3 网络代理设置 */}
@@ -488,19 +568,51 @@ function SoftwareTab() {
                 <Button
                   variant="glass"
                   size="sm"
-                  onClick={() => {
+                  disabled={proxyTesting}
+                  onClick={async () => {
                     const proxy = settings.proxyUrl?.trim()
-                    showToast(
-                      'success',
-                      '操作成功',
-                      proxy
-                        ? `已向 ${proxy} 发起连通测试（无后端阶段为模拟结果）`
-                        : '未配置代理地址，将直接测试本机网络连通性'
-                    )
+                    setProxyTesting(true)
+                    const target = proxy || 'https://www.baidu.com'
+                    try {
+                      /*
+                       * 真实发起一次网络请求。
+                       * 注意：浏览器层面无法真正走系统代理，这里测的是
+                       * 「本机到目标地址的连通性」，不伪装成代理测试结果。
+                       */
+                      const controller = new AbortController()
+                      const timer = setTimeout(() => controller.abort(), 6000)
+                      const t0 = performance.now()
+                      await fetch(target, {
+                        method: 'GET',
+                        mode: 'no-cors',
+                        cache: 'no-store',
+                        signal: controller.signal,
+                      })
+                      clearTimeout(timer)
+                      const ms = Math.round(performance.now() - t0)
+                      showToast(
+                        'success',
+                        '连通正常',
+                        proxy
+                          ? `到 ${proxy} 的真实往返耗时 ${ms}ms（注：浏览器无法强制走系统代理，此为直连探测结果）`
+                          : `到 ${target} 的真实往返耗时 ${ms}ms`
+                      )
+                    } catch (e) {
+                      const aborted = e?.name === 'AbortError'
+                      showToast(
+                        'error',
+                        '无法连通',
+                        aborted
+                          ? `连接 ${target} 超时（>6000ms）`
+                          : `连接 ${target} 失败：${e?.message || '网络错误'}`
+                      )
+                    } finally {
+                      setProxyTesting(false)
+                    }
                   }}
                 >
                   <Network size={13} />
-                  开始测试
+                  {proxyTesting ? '测试中…' : '开始测试'}
                 </Button>
               </FieldRow>
             </div>
@@ -673,14 +785,62 @@ function SoftwareTab() {
 /* ===================== 共用件 ===================== */
 
 function SaveBar() {
-  const { reset } = useSettings()
+  const { settings, reset } = useSettings()
   const { showToast } = useToast()
+
+  /*
+   * 真实导出配置文件
+   * 设置本身是即时写入 localStorage 的，这个按钮做的是
+   * 「导出一份可备份/迁移的 JSON 文件」，是真实的文件产出。
+   */
+  const exportConfig = useCallback(() => {
+    const text = JSON.stringify(settings, null, 2)
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+    a.href = url
+    a.download = `kk-settings-${ts}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast('success', '已导出', `配置已导出为 kk-settings-${ts}.json`)
+  }, [settings, showToast])
+
+  /* 导入配置文件，真实读取并校验后写入 */
+  const importConfig = useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+    input.onchange = async () => {
+      const f = input.files?.[0]
+      if (!f) return
+      try {
+        const text = await f.text()
+        const obj = JSON.parse(text)
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+          showToast('alert', '格式错误', '文件内容不是一个有效的配置对象。')
+          return
+        }
+        let n = 0
+        Object.entries(obj).forEach(([k, v]) => {
+          set(k, v)
+          n += 1
+        })
+        showToast('success', '导入成功', `已从 ${f.name} 导入 ${n} 项配置。`)
+      } catch (e) {
+        showToast('alert', '导入失败', `无法解析该文件：${e?.message || 'JSON 格式错误'}`)
+      }
+    }
+    input.click()
+  }, [set, showToast])
+
   return (
     <div className="flex items-center justify-end gap-2">
       <Button
         variant="glass"
         size="sm"
         onClick={() => {
+          if (!window.confirm('确定要恢复默认设置吗？当前所有配置将被清空。')) return
           reset()
           showToast('success', '操作成功', '已恢复默认设置')
         }}
@@ -688,13 +848,13 @@ function SaveBar() {
         <RotateCcw size={13} />
         重置默认
       </Button>
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={() => showToast('success', '操作成功', '配置已保存到本地')}
-      >
+      <Button variant="glass" size="sm" onClick={importConfig}>
+        <Upload size={13} />
+        导入配置
+      </Button>
+      <Button variant="primary" size="sm" onClick={exportConfig}>
         <Save size={13} />
-        保存配置
+        导出配置
       </Button>
     </div>
   )

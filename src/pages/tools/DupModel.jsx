@@ -1,10 +1,11 @@
-﻿import { useState } from 'react'
+﻿import { useRef, useState } from 'react'
 import { Copy, Play, Square, Trash2, Search, FolderOpen, Settings2, Loader2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { Toggle } from '../../components/ui/Toggle'
 import { useToast } from '../../components/ui/Toast'
-import { pickDirectory } from '../../lib/picker'
+import { pickScanDirectory, findDuplicates } from '../../lib/dupScan'
+import { formatBytes } from '../../lib/envScan'
 import { DUP_MODEL_EXTS } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -16,43 +17,92 @@ import cx from '../../lib/cx'
  *   2. 检测方式：同文件名 / 同哈希值
  *   3. 过滤文件格式：.safetensors .ckpt .bin .pt .gguf（多选）
  *   4. 高级选项：扫描路径（可展开）
- *   5. 统计条：已选N项 | 已扫描0个模型文件，显示0个重复项，
- *      已遍历目录0个，待处理目录0个
+ *   5. 统计条：已选N项 | 已扫描X个模型文件，显示Y个重复项
  *   6. 底部：全选 + 移动到回收站
  *
- * 数据策略：空状态优先
+ * 数据策略：真实扫描用户选择的目录并计算采样哈希，不产生任何虚构结果。
  */
 
 export default function DupModelPage() {
   const [mode, setMode] = useState('hash')
   const [exts, setExts] = useState(DUP_MODEL_EXTS)
   const [advanced, setAdvanced] = useState(false)
-  const [scanPath, setScanPath] = useState('C:\\ComfyUI\\ComfyUI\\ComfyUI\\models')
-  /* 以下为补齐的扫描状态机 */
+  const [scanPath, setScanPath] = useState('')
+  /* 扫描状态机 */
   const [scanning, setScanning] = useState(false)
+  const [progress, setProgress] = useState({ scanned: 0, total: 0, current: '' })
+  const [result, setResult] = useState(null)
+  const [selected, setSelected] = useState({})
+  /* 取消标记：用户点取消时置真，扫完当前文件即停 */
+  const cancelRef = useRef(false)
   const { showToast } = useToast()
 
   const toggleExt = (e) =>
     setExts((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))
 
-  /* 开始检测：校验格式后进入扫描态 */
-  function handleScan() {
+  /* 开始检测：选目录 → 真实扫描 → 真实哈希比对 */
+  async function handleScan() {
     if (scanning) return
     if (exts.length === 0) {
       showToast('alert', '提示', '请至少选择一种文件格式')
       return
     }
+
+    const { canceled, handle, error } = await pickScanDirectory()
+    if (canceled) return
+    if (error) {
+      showToast('alert', '无法开始', error)
+      return
+    }
+
+    cancelRef.current = false
     setScanning(true)
+    setResult(null)
+    setSelected({})
+    setProgress({ scanned: 0, total: 0, current: '' })
+    setScanPath(handle.name)
     showToast(
       'success',
-      '操作成功',
-      `开始按${mode === 'hash' ? '哈希值' : '文件名'}检测重复模型（${exts.length} 种格式）`
+      '开始检测',
+      `正在按${mode === 'hash' ? '内容哈希' : '文件名'}扫描「${handle.name}」（${exts.length} 种格式）`
     )
-    /* 无后端阶段：本地模拟扫描耗时 */
-    setTimeout(() => {
+
+    try {
+      const res = await findDuplicates(handle, exts, mode, (p) => {
+        if (cancelRef.current) return
+        setProgress(p)
+      })
+
+      if (cancelRef.current) {
+        setScanning(false)
+        showToast('alert', '已取消', '检测已取消。')
+        return
+      }
+
+      setResult(res)
       setScanning(false)
-      showToast('success', '操作成功', '检测完成，未发现重复模型')
-    }, 1500)
+
+      if (!res.ok) {
+        showToast('alert', '检测失败', res.reason || '未知错误')
+        return
+      }
+      if (res.groups.length === 0) {
+        showToast(
+          'success',
+          '检测完成',
+          `已真实扫描 ${res.scanned} 个文件，未发现重复项。`
+        )
+      } else {
+        showToast(
+          'success',
+          '检测完成',
+          `已扫描 ${res.scanned} 个文件，发现 ${res.groups.length} 组重复，可释放约 ${formatBytes(res.dupBytes)}。`
+        )
+      }
+    } catch (e) {
+      setScanning(false)
+      showToast('alert', '检测失败', e?.message || '扫描过程中发生错误')
+    }
   }
 
   function handleCancel() {
@@ -60,9 +110,16 @@ export default function DupModelPage() {
       showToast('alert', '提示', '当前没有正在进行的检测任务')
       return
     }
+    cancelRef.current = true
     setScanning(false)
-    showToast('success', '操作成功', '检测已取消')
+    showToast('alert', '已取消', '检测已取消。')
   }
+
+  /* 全选：每组保留第一个，其余为重复项可勾选 */
+  const dupEntries = result
+    ? result.groups.flatMap((g) => g.files.slice(1).map((f) => ({ ...f, group: g.key })))
+    : []
+  const selectedPaths = Object.keys(selected).filter((k) => selected[k])
 
   return (
     <div className="p-6 space-y-5">
@@ -172,31 +229,138 @@ export default function DupModelPage() {
       <section className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-card)] shadow-[0_2px_12px_var(--shadow-color)]">
         <div className="px-5 py-3 flex items-center gap-4 flex-wrap border-b border-[var(--border-main)]">
           <label className="flex items-center gap-2 text-[11px] font-black text-[var(--text-sub)] cursor-pointer">
-            <input type="checkbox" className="accent-indigo-500" />
-            全选 <span className="tnum text-[var(--text-main)]">已选 0 项</span>
+            <input
+              type="checkbox"
+              className="accent-indigo-500"
+              checked={dupEntries.length > 0 && selectedPaths.length === dupEntries.length}
+              onChange={(e) => {
+                const next = {}
+                if (e.target.checked) dupEntries.forEach((f) => { next[f.path] = true })
+                setSelected(next)
+              }}
+              disabled={dupEntries.length === 0}
+            />
+            全选{' '}
+            <span className="tnum text-[var(--text-main)]">已选 {selectedPaths.length} 项</span>
           </label>
           <span className="text-[11px] text-[var(--text-sub)] ml-auto">
-            已扫描 <span className="tnum text-[var(--text-main)]">0</span> 个模型文件，显示{' '}
-            <span className="tnum text-[var(--text-main)]">0</span> 个重复项，已遍历目录{' '}
-            <span className="tnum text-[var(--text-main)]">0</span> 个，待处理目录{' '}
-            <span className="tnum text-[var(--text-main)]">0</span> 个
+            {scanning ? (
+              <>
+                正在扫描{' '}
+                <span className="tnum text-[var(--text-main)]">
+                  {progress.scanned}/{progress.total}
+                </span>
+                {progress.current && (
+                  <span className="ml-1 font-mono"> {progress.current}</span>
+                )}
+              </>
+            ) : (
+              <>
+                已扫描{' '}
+                <span className="tnum text-[var(--text-main)]">{result?.scanned ?? 0}</span>{' '}
+                个模型文件，显示{' '}
+                <span className="tnum text-[var(--text-main)]">{result?.groups.length ?? 0}</span>{' '}
+                个重复组
+                {result && result.dupBytes > 0 && (
+                  <>
+                    ，可释放{' '}
+                    <span className="tnum text-[var(--text-main)]">
+                      {formatBytes(result.dupBytes)}
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </span>
         </div>
 
         <div className="px-5 py-4">
-          <EmptyState
-            icon={Copy}
-            title="暂无重复结果，点击「开始检测」进行扫描"
-            desc="扫描会遍历所选目录下的模型文件，按文件名或哈希值找出重复项。"
-          />
+          {result && result.groups.length > 0 ? (
+            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+              {result.groups.map((g) => (
+                <div
+                  key={g.key + g.files[0].path}
+                  className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-card-lighter)] overflow-hidden"
+                >
+                  <div className="px-3 py-2 border-b border-[var(--border-main)] flex items-center gap-2">
+                    <Copy size={12} className="text-indigo-500 shrink-0" />
+                    <span className="text-[11px] font-black text-[var(--text-main)] truncate">
+                      {g.key}
+                    </span>
+                    <span className="text-[10px] tnum text-[var(--text-sub)] shrink-0">
+                      {g.files.length} 个 · {formatBytes(g.files[0].size)} / 个
+                    </span>
+                  </div>
+                  <div className="divide-y divide-[var(--border-main)]">
+                    {g.files.map((f, i) => {
+                      const isDup = i > 0
+                      return (
+                        <label
+                          key={f.path}
+                          className={cx(
+                            'flex items-center gap-2.5 px-3 py-2',
+                            isDup ? 'cursor-pointer hover:bg-[var(--bg-hover)]' : 'opacity-70'
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-indigo-500 shrink-0"
+                            disabled={!isDup}
+                            checked={Boolean(selected[f.path])}
+                            onChange={() =>
+                              setSelected((s) => ({ ...s, [f.path]: !s[f.path] }))
+                            }
+                          />
+                          <span className="text-[10px] font-mono text-[var(--text-sub)] truncate flex-1">
+                            {f.path}
+                          </span>
+                          {i === 0 && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 shrink-0">
+                              保留
+                            </span>
+                          )}
+                          <span className="text-[10px] tnum text-[var(--text-sub)] shrink-0">
+                            {formatBytes(f.size)}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={Copy}
+              title={result ? '未发现重复项' : '暂无重复结果，点击「开始检测」进行扫描'}
+              desc={
+                result
+                  ? `已真实扫描 ${result.scanned} 个文件，未发现${mode === 'hash' ? '内容相同' : '同名'}的模型。`
+                  : '点击「开始检测」后选择一个模型目录，将真实遍历并按文件名或内容哈希找出重复项。'
+              }
+              action={
+                result ? undefined : (
+                  <Button variant="primary" size="sm" onClick={handleScan} disabled={scanning}>
+                    <Play size={13} />
+                    开始检测
+                  </Button>
+                )
+              }
+            />
+          )}
         </div>
 
         <div className="px-5 py-3 flex justify-end border-t border-[var(--border-main)]">
-           <Button
+          <Button
             variant="danger"
             size="sm"
+            disabled={selectedPaths.length === 0}
             onClick={() =>
-              showToast('alert', '提示', '请先扫描并勾选要移动到回收站的重复模型。')
+              showToast(
+                'alert',
+                '需要后端',
+                `删除文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除已选的 ${selectedPaths.length} 项。`
+              )
             }
           >
             <Trash2 size={13} />
