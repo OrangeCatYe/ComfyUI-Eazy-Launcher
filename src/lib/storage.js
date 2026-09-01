@@ -5,7 +5,6 @@
 
 export const LS = {
   THEME: 'ui_theme',
-  FONT_SCALE: 'ui_font_scale',
   TOOLS_ORDER: 'kk_tools_hub_order',
   TERMINAL_OPEN: 'ui_terminal_open',
   SIDEBAR_SHORTCUTS: 'kk_sidebar_shortcuts',

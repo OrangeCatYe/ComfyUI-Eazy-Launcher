@@ -1,22 +1,16 @@
-import { Moon, RefreshCw, Sun, Terminal, Type, FolderOpen, Volume2, User } from 'lucide-react'
+import { Moon, RefreshCw, Sun, Terminal, FolderOpen, Volume2, User } from 'lucide-react'
 import cx from '../../lib/cx'
 import { useUI } from '../../store/uiStore'
 
 /*
  * TopBar —— 原版顶部栏
  * 左侧：当前页面标题（大字 + 副标题）
- * 右侧：5 个图标按钮（P2 视觉细节待校准，先按语义用 lucide 近似）
+ * 右侧：4 个图标按钮（P2 视觉细节待校准，先按语义用 lucide 近似）
  *       依次为 刷新 / 目录 / 声音 / 主题 / 用户
  *       最右为「显示终端」按钮
  */
 export function TopBar({ title, subtitle, onToggleTerminal, terminalOpen }) {
-  const { theme, toggleTheme, fontScale, setFontScale } = useUI()
-
-  const cycleFont = () => {
-    const order = ['standard', 'large', 'xlarge']
-    const next = order[(order.indexOf(fontScale) + 1) % order.length]
-    setFontScale(next)
-  }
+  const { theme, toggleTheme } = useUI()
 
   const iconBtn =
     'press p-2 rounded-xl bg-[var(--bg-glass-strong)] border border-[var(--border-main)] text-[var(--text-sub)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] shadow-sm'
@@ -44,9 +38,6 @@ export function TopBar({ title, subtitle, onToggleTerminal, terminalOpen }) {
         </button>
         <button onClick={toggleTheme} className={iconBtn} title="切换主题">
           {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
-        </button>
-        <button onClick={cycleFont} className={iconBtn} title="字体大小">
-          <Type size={15} />
         </button>
         <button className={iconBtn} title="用户">
           <User size={15} />

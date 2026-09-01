@@ -85,15 +85,9 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
 }
 
-/* 字体缩放：原版 localStorage key = ui_font_scale，取值 standard / large / xlarge */
-[data-font='standard'] {
+/* 字体缩放功能已按需求移除，固定为标准字号 */
+:root {
   font-size: 14px;
-}
-[data-font='large'] {
-  font-size: 15.5px;
-}
-[data-font='xlarge'] {
-  font-size: 17px;
 }
 
 * {

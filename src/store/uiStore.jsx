@@ -9,30 +9,19 @@ const UIContext = createContext(null)
 
 export function UIProvider({ children }) {
   const [theme, setThemeState] = useState(() => readLS(LS.THEME, 'light'))
-  const [fontScale, setFontScaleState] = useState(() => readLS(LS.FONT_SCALE, 'standard'))
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     writeLS(LS.THEME, theme)
   }, [theme])
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-font', fontScale)
-    writeLS(LS.FONT_SCALE, fontScale)
-  }, [fontScale])
-
   const setTheme = useCallback((t) => setThemeState(t), [])
   const toggleTheme = useCallback(
     () => setThemeState((t) => (t === 'light' ? 'dark' : 'light')),
     []
   )
-  const setFontScale = useCallback((s) => setFontScaleState(s), [])
 
-  return (
-    <UIContext.Provider value={{ theme, setTheme, toggleTheme, fontScale, setFontScale }}>
-      {children}
-    </UIContext.Provider>
-  )
+  return <UIContext.Provider value={{ theme, setTheme, toggleTheme }}>{children}</UIContext.Provider>
 }
 
 export function useUI() {
