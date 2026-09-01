@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+/// <reference types="vitest" />
+
 /*
  * Vite 无论如何都会给入口 script 打上 type="module"，
  * 而 file:// 下浏览器对 module 脚本强制执行 CORS，直接白屏。
@@ -50,6 +52,16 @@ export default defineConfig({
         entryFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name][extname]',
       },
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['tests/**/*.{test,spec}.{js,jsx}'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/lib/**/*.js'],
+      reporter: ['text', 'html'],
     },
   },
 })
