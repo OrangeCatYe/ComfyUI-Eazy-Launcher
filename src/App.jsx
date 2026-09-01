@@ -1,13 +1,21 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
 import { TerminalDrawer } from './components/layout/TerminalDrawer'
-import { TOOLS, TOOL_MAP, TOOL_PAGES } from './config/navigation'
+import { SnapshotDiffModal } from './components/ui/SnapshotDiffModal'
+import { TOOLS, TOOL_MAP } from './config/navigation'
 import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
-import { SettingsProvider } from './store/settingsStore'
+import { SettingsProvider, useSettings } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
 import { createLogger } from './lib/logger'
+import {
+  selectRequirementsFile,
+  compareSnapshots,
+  findLibInPlugins,
+  previewRestoreSnapshot,
+  restoreEnvSnapshot,
+} from './lib/api'
 import HomePage from './pages/HomePage'
 import KernelPage from './pages/KernelPage'
 import PluginsPage from './pages/PluginsPage'
@@ -54,7 +62,6 @@ const DEPLOY_VERSIONS = {
 
 const PAGE_META = {
   home: { title: '首页', subtitle: '设备状态与快捷入口' },
-  home: { title: '首页', subtitle: '设备状态与快捷入口' },
   kernel: { title: '内核管理', subtitle: 'ComfyUI 内核版本与仓库管理' },
   plugins: { title: '插件管理', subtitle: '已安装插件与批量操作' },
   deps: { title: '环境依赖', subtitle: 'Python 依赖检测与快照管理' },
@@ -66,7 +73,12 @@ const PAGE_META = {
 /* 工具卡图标解析：把配置里的图标名映射为 lucide 组件 */
 const TOOLS_WITH_ICONS = TOOLS.map((t) => ({ ...t, icon: ICONS[t.icon] || ICONS.Boxes }))
 
-export default function App() {
+function AppShell() {
+  /* 环境路径取自统一设置层（全局设置 → 系统与网络配置 → 基础运行环境） */
+  const { settings } = useSettings()
+  const comfyRoot = settings.comfyRoot || ''
+  const pythonPath = settings.pythonPrimary || ''
+
   const [page, setPage] = useState('home')
   const [terminalOpen, setTerminalOpen] = useState(true)
   const [logs, setLogs] = useState([])
@@ -78,7 +90,13 @@ export default function App() {
   const [deployStatus, setDeployStatus] = useState('待命')
   const [deployDir, setDeployDir] = useState('')
 
-  /* 全局开关状态（空数据阶段先本地托管） */
+  /* 恢复快照依赖：差异表弹窗（terminal.md 4.1） */
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [restoreDiff, setRestoreDiff] = useState(null)
+  /* 动作标记：记录最后一次「恢复快照依赖」动作阶段 */
+  const lastAction = useRef(null)
+
+  /* 自动安装依赖 / 放心装（空数据阶段先本地托管） */
   const [autoInstall, setAutoInstall] = useState(true)
   const [safeMode, setSafeMode] = useState(false)
 
@@ -112,7 +130,7 @@ export default function App() {
       case 'home':
         return (
           <HomePage
-            config={null}
+            config={{ comfyRoot, pythonPath }}
             running={running}
             onLaunch={handleLaunch}
           />
@@ -160,8 +178,19 @@ export default function App() {
     }
   }
 
-  /* 环境依赖页动作 → 终端输出（S4 补全真实逻辑） */
-  function handleDepsAction(name, payload) {
+  /* 环境依赖页动作 → 终端输出 */
+  async function handleDepsAction(name, payload) {
+    /* 三个终端协议功能走独立实现（见 openspec/spec/terminal.md） */
+    if (name === 'compareEnv') return runCompareEnv()
+    if (name === 'findRefs') return runFindRefs(payload)
+    if (name === 'restoreSnapshot') return runRestoreSnapshot()
+
+    /* 清空日志为独立回调，不产生新日志 */
+    if (name === 'clearLog') {
+      clear()
+      return
+    }
+
     const map = {
       speedTest: '>>> 正在启动镜像源测速...',
       analyzeReq: '>>> 正在分析依赖文件...',
@@ -189,6 +218,161 @@ export default function App() {
     setTerminalOpen(true)
   }
 
+  /* ================= 终端协议三功能（openspec/spec/terminal.md） ================= */
+
+  /*
+   * 环境比较工具 —— 3 步终端向导，全程无弹窗
+   * 任一步返回空 → 输出「操作已取消。」
+   */
+  async function runCompareEnv() {
+    setTerminalOpen(true)
+    push({ level: 'cmd', text: '\n>>> 启动环境比较工具...' })
+
+    push({ level: 'info', text: '步骤 1/3: 请选择基准快照文件 (旧版本)...' })
+    const base = await selectRequirementsFile()
+    if (!base) {
+      push({ level: 'warning', text: '操作已取消。' })
+      return
+    }
+    push({ level: 'info', text: `基准文件: ${base}` })
+
+    push({ level: 'info', text: '步骤 2/3: 请选择目标快照文件 (新版本)...' })
+    const target = await selectRequirementsFile()
+    if (!target) {
+      push({ level: 'warning', text: '操作已取消。' })
+      return
+    }
+    push({ level: 'info', text: `目标文件: ${target}` })
+
+    push({ level: 'info', text: '步骤 3/3: 正在分析差异...' })
+
+    try {
+      const diff = await compareSnapshots(base, target)
+      /* 依赖文件分析头 */
+      push({ level: 'cmd', text: `\n>>> 正在分析依赖文件: ${target}` })
+      push({
+        level: 'info',
+        text: [
+          '',
+          '=========== 依赖文件分析 ===========',
+          ...diff.added.map((p) => `📦 ${p}\n   需求版本: 无要求`),
+          ...diff.changed.map((c) => `📦 ${c.name}\n   需求版本: ${c.to}`),
+          '------------------------------------',
+          '====================================',
+        ].join('\n'),
+      })
+
+      /* 差异三组 */
+      push({
+        level: 'success',
+        text: [
+          `\n🔍 比较结果: ${base} → ${target}`,
+          ` 新增 ${diff.added.length} 个，移除 ${diff.removed.length} 个，变更 ${diff.changed.length} 个`,
+        ].join('\n'),
+      })
+
+      if (diff.added.length) {
+        push({ level: 'info', text: '\n[新增]' })
+        diff.added.forEach((p) => push({ level: 'info', text: ` - ${p}` }))
+      }
+      if (diff.removed.length) {
+        push({ level: 'info', text: '\n[移除]' })
+        diff.removed.forEach((p) => push({ level: 'info', text: ` - ${p}` }))
+      }
+      if (diff.changed.length) {
+        push({ level: 'info', text: '\n[变更]' })
+        diff.changed.forEach((c) =>
+          push({ level: 'info', text: ` - ${c.name}: ${c.from} → ${c.to}` })
+        )
+      }
+      push({ level: 'success', text: '\n>>> 环境比较完成' })
+    } catch (e) {
+      push({ level: 'error', text: `>>> 比较失败: ${e?.message || e}` })
+    }
+  }
+
+  /*
+   * 查询引用插件 —— 前置校验（唯一弹窗）+ 终端输出
+   * 校验：库名为空 / ComfyUI 路径未设置
+   */
+  async function runFindRefs(libName) {
+    const lib = (libName || '').trim()
+    if (!lib) {
+      window.alert('提示\n请先输入要查询的库名')
+      return
+    }
+    if (!comfyRoot) {
+      window.alert('提示\nComfyUI 路径未设置')
+      return
+    }
+
+    setTerminalOpen(true)
+    push({ level: 'cmd', text: `\n>>> 正在扫描引用了 [${lib}] 的插件...` })
+
+    try {
+      const plugins = await findLibInPlugins(comfyRoot, lib)
+      if (plugins.length === 0) {
+        push({
+          level: 'info',
+          text: `🔍 查询结果: 未发现任何插件显式依赖 [${lib}]。`,
+        })
+        return
+      }
+      push({
+        level: 'info',
+        text: `🔍 查询结果: 发现 ${plugins.length} 个插件依赖此库:\n${plugins
+          .map((p) => ` - ${p}`)
+          .join('\n')}\n(基于 requirements.txt 声明检测)`,
+      })
+    } catch (e) {
+      push({ level: 'error', text: `查询失败: ${e?.message || e}` })
+    }
+  }
+
+  /*
+   * 恢复快照依赖 —— 页面内差异表 → 勾选 → 执行 → 终端日志
+   * 唯一在页面内渲染差异表的功能
+   */
+  async function runRestoreSnapshot() {
+    setTerminalOpen(true)
+    push({ level: 'cmd', text: '\n>>> 请选择要恢复的快照文件...' })
+
+    const snapshotPath = await selectRequirementsFile()
+    if (!snapshotPath) {
+      push({ level: 'warning', text: '操作已取消。' })
+      return
+    }
+    push({ level: 'info', text: `快照文件: ${snapshotPath}` })
+    push({ level: 'info', text: '>>> 正在预览恢复差异...' })
+
+    try {
+      const diff = await previewRestoreSnapshot(pythonPath, snapshotPath)
+      lastAction.current = '恢复快照依赖-预览'
+      setRestoreDiff({ ...diff, snapshotPath })
+      setRestoreOpen(true)
+      push({ level: 'success', text: '>>> 差异预览完成，请在弹窗中确认要恢复的条目。' })
+    } catch (e) {
+      push({ level: 'error', text: `>>> 预览失败: ${e?.message || e}` })
+    }
+  }
+
+  /* 执行恢复快照依赖 */
+  async function handleRestoreConfirm(selections) {
+    const path = restoreDiff?.snapshotPath || ''
+    setTerminalOpen(true)
+    push({ level: 'cmd', text: `\n>>> 开始恢复快照依赖: ${path}` })
+
+    try {
+      await restoreEnvSnapshot(pythonPath, path, selections)
+      lastAction.current = '恢复快照依赖-执行'
+      push({ level: 'success', text: '>>> 恢复快照依赖完成' })
+      setRestoreOpen(false)
+      setRestoreDiff(null)
+    } catch (e) {
+      push({ level: 'error', text: `>>> 恢复失败: ${e?.message || e}` })
+    }
+  }
+
   /* 启动 / 停止内核（无后端阶段：本地模拟运行态与 PID） */
   function handleLaunch() {
     if (running) {
@@ -213,54 +397,7 @@ export default function App() {
     }, 900)
   }
 
-  /* 选择部署目录（浏览器环境下无本地文件对话框，改用输入提示） */
-  function handlePickDeployDir() {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.webkitdirectory = true
-    input.directory = true
-    input.multiple = false
-    input.onchange = () => {
-      const f = input.files?.[0]
-      if (!f) return
-      const path = f.webkitRelativePath.split('/')[0] || f.name
-      setDeployDir(path)
-      push({ level: 'info', text: `>>> 已选择部署目录：${path}` })
-    }
-    input.click()
-  }
-
-  /* 初恋部署：按阶段推进进度（无后端阶段本地模拟） */
-  function handleDeploy() {
-    if (deployProgress > 0 && deployProgress < 100) return
-
-    const steps = [
-      { at: 10, status: '创建部署目录', text: '>>> 正在创建部署目录...' },
-      { at: 35, status: '下载 Python', text: '>>> 正在下载并解压 Python 运行环境...' },
-      { at: 50, status: '创建虚拟环境', text: '>>> 正在创建虚拟环境...' },
-      { at: 75, status: '安装 Pytorch', text: '>>> 正在安装 Pytorch+Cuda 套件（耗时较长）...' },
-      { at: 90, status: '拉取仓库', text: '>>> 正在拉取 ComfyUI 仓库...' },
-      { at: 100, status: '完成', text: '>>> 正在安装依赖并收尾...' },
-    ]
-
-    setDeployProgress(0)
-    setDeployStatus(steps[0].status)
-    setTerminalOpen(true)
-    push({ level: 'cmd', text: '\n>>> 开始部署 ComfyUI 整合包...' })
-
-    steps.forEach((s, i) => {
-      setTimeout(() => {
-        setDeployProgress(s.at)
-        setDeployStatus(s.status)
-        push({ level: 'info', text: s.text })
-        if (i === steps.length - 1) {
-          push({ level: 'success', text: '>>> 部署完成！可以启动内核了。' })
-        }
-      }, (i + 1) * 700)
-    })
-  }
-
-  /* 生成日志：把当前日志导出为 .log 文件 */
+  /* AI 日志分析：扫描当前日志给出摘要（本地模拟） */
   function handleAiAnalyze() {
     if (logs.length === 0) {
       push({ level: 'warning', text: '>>> 暂无日志可分析' })
@@ -347,11 +484,8 @@ export default function App() {
   }
 
   return (
-    <SettingsProvider>
-      <UIProvider>
-        <ToastProvider>
-          <div className="h-full flex overflow-hidden bg-[var(--bg-main)]">
-          <Sidebar current={page} onNavigate={navigate} />
+    <div className="h-full flex overflow-hidden bg-[var(--bg-main)]">
+      <Sidebar current={page} onNavigate={navigate} />
 
           <div className="flex-1 flex flex-col min-w-0">
             <TopBar
@@ -377,8 +511,32 @@ export default function App() {
               onExportLog={handleExportLog}
             />
           </div>
-        </div>
-      </ToastProvider>
+
+          {/* 恢复快照依赖 —— 差异表弹窗（唯一有页面内 UI 的终端功能） */}
+          <SnapshotDiffModal
+            open={restoreOpen}
+            diff={restoreDiff}
+            onClose={() => {
+              setRestoreOpen(false)
+              setRestoreDiff(null)
+            }}
+            onConfirm={handleRestoreConfirm}
+          />
+    </div>
+  )
+}
+
+/*
+ * 外层 App —— 只负责挂载 Provider
+ * SettingsProvider 必须在 AppShell 外层，AppShell 才能读取环境路径。
+ */
+export default function App() {
+  return (
+    <SettingsProvider>
+      <UIProvider>
+        <ToastProvider>
+          <AppShell />
+        </ToastProvider>
       </UIProvider>
     </SettingsProvider>
   )
