@@ -85,9 +85,19 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
 }
 
-/* 字体缩放功能已按需求移除，固定为标准字号 */
-:root {
+/*
+ * 全局界面缩放
+ * 由「全局设置 → 个性设置 → 全局界面缩放」驱动（settingsStore 写入 data-font）
+ * 注：TopBar 的字体切换按钮已按需求移除，缩放入口仅保留在设置页
+ */
+[data-font='standard'] {
   font-size: 14px;
+}
+[data-font='large'] {
+  font-size: 15.5px;
+}
+[data-font='xlarge'] {
+  font-size: 17px;
 }
 
 * {

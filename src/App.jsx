@@ -5,6 +5,7 @@ import { TerminalDrawer } from './components/layout/TerminalDrawer'
 import { TOOLS, TOOL_MAP, TOOL_PAGES } from './config/navigation'
 import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
+import { SettingsProvider } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
 import { createLogger } from './lib/logger'
 import HomePage from './pages/HomePage'
@@ -118,9 +119,10 @@ export default function App() {
   }
 
   return (
-    <UIProvider>
-      <ToastProvider>
-        <div className="h-full flex overflow-hidden bg-[var(--bg-main)]">
+    <SettingsProvider>
+      <UIProvider>
+        <ToastProvider>
+          <div className="h-full flex overflow-hidden bg-[var(--bg-main)]">
           <Sidebar current={page} onNavigate={navigate} />
 
           <div className="flex-1 flex flex-col min-w-0">
@@ -142,7 +144,8 @@ export default function App() {
           </div>
         </div>
       </ToastProvider>
-    </UIProvider>
+      </UIProvider>
+    </SettingsProvider>
   )
 }
 
