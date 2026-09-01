@@ -1,6 +1,19 @@
-import { Rocket, FolderOpen, Clock, Blocks, Cpu, HardDrive } from 'lucide-react'
+import { useState } from 'react'
+import {
+  Rocket,
+  FolderOpen,
+  Clock,
+  Blocks,
+  Cpu,
+  HardDrive,
+  Cloud,
+  ExternalLink,
+  Power,
+} from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { StatCard, SectionCard, EmptyState } from '../components/ui/Blocks'
+import { Modal } from '../components/ui/Modal'
+import { NETDISK_LINKS } from '../config/tools'
 
 /*
  * 首页 —— 依据「首页-已配置环境.png」「首次启动-无配置.png」
@@ -24,13 +37,18 @@ const DEVICE_INFO = [
 ]
 
 const QUICK_LINKS = [
-  { icon: FolderOpen, label: '目录直达', desc: '快速打开常用目录' },
-  { icon: FolderOpen, label: '网盘入口', desc: '各类网盘资源直达' },
-  { icon: Clock, label: '定时关机', desc: '任务结束后自动关机' },
+  { id: 'dir', icon: FolderOpen, label: '目录直达', desc: '快速打开常用目录' },
+  { id: 'netdisk', icon: Cloud, label: '网盘入口', desc: '各类网盘资源直达' },
+  { id: 'shutdown', icon: Clock, label: '定时关机', desc: '任务结束后自动关机' },
 ]
 
 export default function HomePage({ config, onLaunch, running }) {
   const configured = Boolean(config?.comfyRoot)
+  const [netdiskOpen, setNetdiskOpen] = useState(false)
+
+  const handleQuickLink = (id) => {
+    if (id === 'netdisk') setNetdiskOpen(true)
+  }
 
   return (
     <div className="p-6 space-y-5">
@@ -84,6 +102,7 @@ export default function HomePage({ config, onLaunch, running }) {
           {DEVICE_INFO.map((it) => (
             <StatCard key={it.label} icon={it.icon} label={it.label} value={it.value} />
           ))}
+          <FlipShutdownCard />
         </div>
       </SectionCard>
 
@@ -93,7 +112,8 @@ export default function HomePage({ config, onLaunch, running }) {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {QUICK_LINKS.map((it) => (
               <button
-                key={it.label}
+                key={it.id}
+                onClick={() => handleQuickLink(it.id)}
                 className="press group flex items-center gap-3 p-3.5 rounded-xl border border-[var(--border-main)] bg-[var(--bg-card-lighter)] hover:border-indigo-400/50 hover:bg-[var(--bg-hover)] text-left"
               >
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0">
@@ -114,6 +134,83 @@ export default function HomePage({ config, onLaunch, running }) {
           />
         )}
       </SectionCard>
+
+      {/* 网盘资料入口弹窗 */}
+      <Modal
+        open={netdiskOpen}
+        onClose={() => setNetdiskOpen(false)}
+        title="网盘资料入口"
+        description="请选择你希望打开的网盘入口"
+        size="sm"
+        footer={
+          <Button variant="glass" size="sm" onClick={() => setNetdiskOpen(false)}>
+            关闭
+          </Button>
+        }
+      >
+        <div className="space-y-2 pb-2">
+          {NETDISK_LINKS.map((n) => (
+            <button
+              key={n.name}
+              className="press w-full flex items-center gap-3 p-3 rounded-xl border border-[var(--border-main)] bg-[var(--bg-card-lighter)] hover:border-indigo-400/50 hover:bg-[var(--bg-hover)] text-left group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
+                <Cloud size={14} className="text-indigo-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-black text-[var(--text-main)]">{n.name}</div>
+                <div className="mt-0.5 text-[10px] font-mono text-[var(--text-sub)] truncate">
+                  {n.url}
+                </div>
+              </div>
+              <ExternalLink
+                size={13}
+                className="text-[var(--text-sub)] group-hover:text-indigo-500 shrink-0"
+              />
+            </button>
+          ))}
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+/*
+ * 累计运行卡片 —— 点击上下翻转，背面为定时关机入口
+ * 依据「首页-点击累计运行卡片，播放上下翻转卡片动画后展示定时关机功能入口.png」
+ */
+function FlipShutdownCard() {
+  const [flipped, setFlipped] = useState(false)
+
+  return (
+    <div className="[perspective:1000px]">
+      <div
+        onClick={() => setFlipped((v) => !v)}
+        className={`press relative h-[74px] w-full cursor-pointer [transform-style:preserve-3d] transition-transform duration-500 ${
+          flipped ? '[transform:rotateX(180deg)]' : ''
+        }`}
+      >
+        {/* 正面：累计运行 */}
+        <div className="absolute inset-0 [backface-visibility:hidden]">
+          <StatCard icon={Clock} label="累计运行" value="0 分钟" />
+        </div>
+
+        {/* 背面：定时关机 */}
+        <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateX(180deg)]">
+          <div className="h-full rounded-2xl border border-indigo-400/50 bg-indigo-500/5 p-4 flex flex-col justify-center shadow-[0_2px_12px_var(--shadow-color)]">
+            <div className="flex items-center gap-1.5 text-indigo-600">
+              <Power size={13} />
+              <span className="text-[11px] font-black">空闲后 30 分钟自动关机</span>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-[10px] text-[var(--text-sub)]">监测状态：未开启</span>
+              <button className="press px-2 py-0.5 rounded-md bg-indigo-500 text-white text-[10px] font-black">
+                开始任务
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

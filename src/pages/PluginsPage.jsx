@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Blocks, Download, RefreshCw, Power, Trash2, History, GitBranch } from 'lucide-react'
+import { Blocks, Download, RefreshCw, Power, Trash2, History, GitBranch, Search } from 'lucide-react'
 import { Button } from '../components/ui/Button'
-import { SearchInput } from '../components/ui/Input'
+import { SearchInput, TextInput } from '../components/ui/Input'
 import { Toolbar, SectionCard, EmptyState } from '../components/ui/Blocks'
 import { Toggle } from '../components/ui/Toggle'
 import { Badge } from '../components/ui/Badge'
+import { Modal, ConfirmModal } from '../components/ui/Modal'
 
 /*
  * 插件管理 —— 依据「插件管理.png」
@@ -19,6 +20,9 @@ import { Badge } from '../components/ui/Badge'
 
 export default function PluginsPage({ plugins = [], autoInstall, onToggleAutoInstall, safeMode, onToggleSafeMode }) {
   const [keyword, setKeyword] = useState('')
+  const [installOpen, setInstallOpen] = useState(false)
+  const [historyPlugin, setHistoryPlugin] = useState(null)
+  const [switchPlugin, setSwitchPlugin] = useState(null)
 
   const list = keyword.trim()
     ? plugins.filter(
@@ -31,7 +35,7 @@ export default function PluginsPage({ plugins = [], autoInstall, onToggleAutoIns
   return (
     <div className="p-6 space-y-5">
       <Toolbar count={plugins.length} countUnit="个已安装">
-        <Button variant="primary" size="sm">
+        <Button variant="primary" size="sm" onClick={() => setInstallOpen(true)}>
           + 安装新插件
         </Button>
       </Toolbar>
@@ -87,16 +91,111 @@ export default function PluginsPage({ plugins = [], autoInstall, onToggleAutoIns
         ) : (
           <div className="space-y-3">
             {list.map((p) => (
-              <PluginRow key={p.name} plugin={p} />
+              <PluginRow
+                key={p.name}
+                plugin={p}
+                onHistory={() => setHistoryPlugin(p)}
+                onSwitch={() => setSwitchPlugin(p)}
+              />
             ))}
           </div>
         )}
       </SectionCard>
+
+      <InstallModal open={installOpen} onClose={() => setInstallOpen(false)} />
+      <HistoryModal
+        plugin={historyPlugin}
+        onClose={() => setHistoryPlugin(null)}
+        onSwitch={(p) => {
+          setHistoryPlugin(null)
+          setSwitchPlugin(p)
+        }}
+      />
+      <ConfirmModal
+        open={Boolean(switchPlugin)}
+        onClose={() => setSwitchPlugin(null)}
+        onConfirm={() => setSwitchPlugin(null)}
+        title="切换插件版本"
+        message={`确认将「${switchPlugin?.name || ''}」切换到所选版本？切换过程会拉取对应提交。`}
+      />
     </div>
   )
 }
 
-function PluginRow({ plugin }) {
+/* 安装新插件弹窗 —— 依据「插件管理-安装新插件.png」 */
+function InstallModal({ open, onClose }) {
+  const [url, setUrl] = useState('')
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="安装新插件"
+      description="粘贴插件的 Git 仓库地址，或选择本地插件目录进行安装。"
+      size="md"
+      footer={
+        <>
+          <Button variant="glass" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button variant="primary" size="sm" onClick={onClose}>
+            开始安装
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 pb-2">
+        <div>
+          <div className="text-[11px] font-black text-[var(--text-sub)] mb-1.5">仓库地址</div>
+          <TextInput
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://github.com/author/plugin-name.git"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="glass" size="sm">
+            选择本地插件目录
+          </Button>
+          <span className="text-[11px] text-[var(--text-sub)]">尚未选择本地文件。</span>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/* 历史版本弹窗 —— 依据「插件管理「历史」.png」 */
+function HistoryModal({ plugin, onClose, onSwitch }) {
+  if (!plugin) return null
+  return (
+    <Modal
+      open={Boolean(plugin)}
+      onClose={onClose}
+      title={`${plugin.name} — 历史版本`}
+      description="选择要切换到的提交版本。"
+      size="md"
+      footer={
+        <Button variant="glass" size="sm" onClick={onClose}>
+          关闭
+        </Button>
+      }
+    >
+      <div className="space-y-2 pb-2">
+        <EmptyState
+          icon={History}
+          title="暂无历史版本"
+          desc="该插件尚无历史提交记录，或记录尚未拉取。"
+        />
+        <div className="flex justify-end">
+          <Button variant="glass" size="sm" onClick={() => onSwitch(plugin)}>
+            切换到指定版本
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function PluginRow({ plugin, onHistory, onSwitch }) {
   return (
     <div className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-card-lighter)] p-4 hover:border-indigo-400/40 transition-colors">
       <div className="flex items-start justify-between gap-4">
@@ -124,7 +223,7 @@ function PluginRow({ plugin }) {
           <Button variant="glass" size="sm">
             最新
           </Button>
-          <Button variant="glass" size="sm">
+          <Button variant="glass" size="sm" onClick={onHistory}>
             <History size={12} />
             历史
           </Button>

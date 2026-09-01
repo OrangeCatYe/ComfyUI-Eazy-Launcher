@@ -15,6 +15,30 @@ import DepsPage from './pages/DepsPage'
 import ToolsPage from './pages/ToolsPage'
 import DeployPage from './pages/DeployPage'
 import SettingsPage from './pages/SettingsPage'
+import ModelManagerPage from './pages/tools/ModelManager'
+import DupModelPage from './pages/tools/DupModel'
+import ImagePromptRevPage from './pages/tools/ImagePromptRev'
+import WorkflowHubPage from './pages/tools/WorkflowHub'
+import PromptFavoritesPage from './pages/tools/PromptFavorites'
+import PolishPage from './pages/tools/Polish'
+import MediaToolsPage from './pages/tools/MediaTools'
+import AutoShutdownPage from './pages/tools/AutoShutdown'
+import MyWorksPage from './pages/tools/MyWorks'
+import AboutAuthorPage from './pages/tools/AboutAuthor'
+
+/* 工具页路由表：id → 组件 */
+const TOOL_ROUTES = {
+  MODEL_MANAGER: ModelManagerPage,
+  DUP_MODEL: DupModelPage,
+  IMAGE_PROMPT_REV: ImagePromptRevPage,
+  WORKFLOW_HUB: WorkflowHubPage,
+  PROMPT_FAVORITES: PromptFavoritesPage,
+  POLISH: PolishPage,
+  MEDIA_TOOLS: MediaToolsPage,
+  AUTO_SHUTDOWN: AutoShutdownPage,
+  MY_WORKS: MyWorksPage,
+  ABOUT_AUTHOR: AboutAuthorPage,
+}
 
 const PAGE_META = {
   home: { title: '首页', subtitle: '设备状态与快捷入口' },
@@ -61,7 +85,8 @@ export default function App() {
   const renderPage = () => {
     if (page.startsWith('tool:')) {
       const id = page.slice(5)
-      return <ToolPlaceholder id={id} />
+      const ToolComponent = TOOL_ROUTES[id]
+      return ToolComponent ? <ToolComponent /> : <ToolPlaceholder id={id} />
     }
     switch (page) {
       case 'home':
