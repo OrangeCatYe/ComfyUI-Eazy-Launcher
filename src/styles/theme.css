@@ -146,6 +146,29 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-main);
+  transition: backdrop-filter 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 毛玻璃展开动效：从收拢/透明的模糊态平滑展开到清晰态（P2，曲线沿用全局 kk 曲线） */
+@keyframes glass-expand {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96) translateY(-4px);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+.glass-expand {
+  transform-origin: top center;
+  animation: glass-expand 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .section-title {
