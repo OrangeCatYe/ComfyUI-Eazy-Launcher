@@ -1,0 +1,24 @@
+{
+  "name": "kk-launcher-clone",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ComfyUI_KK 专业启动器 v2.0.7 高保真前端复刻（静态 UI，数据为 mock）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^1.38.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.26",
+    "tailwindcss": "3.4.17",
+    "vite": "5.4.21"
+  }
+}

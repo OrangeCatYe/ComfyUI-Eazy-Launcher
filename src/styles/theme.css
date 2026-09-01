@@ -1,0 +1,169 @@
+/*
+ * 主题 Token 系统
+ *
+ * 变量名均提取自原版 bundle_READY.js 中的 var(--x) 用法（共 59 处引用，去重后 12 个核心变量）。
+ * 原版通过运行时 style.setProperty 注入，此处改为 [data-theme] 静态声明，语义一一对应。
+ *
+ * 核心变量清单（原版实证）：
+ *   --bg-main          页面底色
+ *   --bg-card          卡片底色
+ *   --bg-card-lighter  卡片内浅层（嵌套块、表头）
+ *   --bg-glass-strong  玻璃拟态按钮底色
+ *   --bg-hover         悬浮底色
+ *   --bg-modal         弹窗底色
+ *   --bg-sidebar       侧边栏底色
+ *   --border-main      主描边
+ *   --text-main        主文字
+ *   --text-sub         次文字
+ *   --text-strong      强调文字
+ *   --text-log-warning 终端警告色
+ *   --shadow-color     投影色
+ */
+
+:root,
+[data-theme='light'] {
+  --bg-main: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-lighter: #f8fafc;
+  --bg-glass-strong: rgba(255, 255, 255, 0.8);
+  --bg-hover: rgba(15, 23, 42, 0.04);
+  --bg-modal: #ffffff;
+  --bg-sidebar: rgba(255, 255, 255, 0.7);
+
+  --border-main: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --text-strong: #0f172a;
+  --text-log-warning: #b45309;
+
+  --shadow-color: rgba(15, 23, 42, 0.06);
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #e11d48;
+  --info: #0284c7;
+
+  --scrollbar-thumb: rgba(15, 23, 42, 0.18);
+  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.3);
+}
+
+[data-theme='dark'] {
+  --bg-main: #0b1120;
+  --bg-card: #111a2e;
+  --bg-card-lighter: #172033;
+  --bg-glass-strong: rgba(30, 41, 59, 0.7);
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-modal: #111a2e;
+  --bg-sidebar: rgba(17, 26, 46, 0.72);
+
+  --border-main: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text-main: #e2e8f0;
+  --text-sub: #94a3b8;
+  --text-strong: #f8fafc;
+  --text-log-warning: #fbbf24;
+
+  --shadow-color: rgba(0, 0, 0, 0.4);
+
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #f43f5e;
+  --info: #38bdf8;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+}
+
+/* 字体缩放：原版 localStorage key = ui_font_scale，取值 standard / large / xlarge */
+[data-font='standard'] {
+  font-size: 14px;
+}
+[data-font='large'] {
+  font-size: 15.5px;
+}
+[data-font='xlarge'] {
+  font-size: 17px;
+}
+
+* {
+  border-color: var(--border-main);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-main);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* 通用工具类 */
+.card-surface {
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  box-shadow: 0 4px 24px var(--shadow-color);
+}
+
+.glass-surface {
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-main);
+}
+
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 900;
+  color: var(--text-sub);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 原版大量使用 active:scale-95 作为按压缩放，统一抽为工具类 */
+.press {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.press:active {
+  transform: scale(0.95);
+}
+
+/* 数值类信息统一等宽，对齐原版 tabular 观感 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
