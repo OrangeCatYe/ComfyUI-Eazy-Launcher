@@ -15,7 +15,7 @@ export function PageHeader({ title, desc, children }) {
 }
 
 /* 带标题的内容区块 */
-export function SectionCard({ title, desc, children, className, bodyClass }) {
+export function SectionCard({ title, desc, action, children, className, bodyClass }) {
   return (
     <section
       className={cx(
@@ -23,11 +23,14 @@ export function SectionCard({ title, desc, children, className, bodyClass }) {
         className
       )}
     >
-      {(title || desc) && (
+      {(title || desc || action) && (
         <div className="px-5 pt-4 pb-3">
-          <div className="flex items-baseline gap-3">
-            {title && <h3 className="section-title">{title}</h3>}
-            {desc && <span className="text-[11px] text-[var(--text-sub)]">{desc}</span>}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-baseline gap-3 min-w-0">
+              {title && <h3 className="section-title">{title}</h3>}
+              {desc && <span className="text-[11px] text-[var(--text-sub)]">{desc}</span>}
+            </div>
+            {action && <div className="shrink-0">{action}</div>}
           </div>
         </div>
       )}

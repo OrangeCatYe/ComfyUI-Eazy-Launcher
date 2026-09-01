@@ -1,6 +1,7 @@
-import { Rocket, FolderOpen, RotateCcw, Check, Download } from 'lucide-react'
+import { Rocket, FolderOpen, RotateCcw, Check, Download, Loader } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { SectionCard, FieldRow, EmptyState } from '../components/ui/Blocks'
+import cx from '../lib/cx'
 
 /*
  * 初恋部署 —— 依据「初恋部署.png」
@@ -17,13 +18,31 @@ import { SectionCard, FieldRow, EmptyState } from '../components/ui/Blocks'
  */
 
 const DEPLOY_SOURCES = [
-  { label: 'ComfyUI 仓库', value: 'https://github.com/Comfy-Org/ComfyUI.git' },
-  { label: 'Pytorch 套件下载站', value: 'https://mirrors.aliyun.com/pytorch-wheels' },
+  { label: 'ComfyUI 仓库', tag: 'GitHub 官方仓库', value: 'https://github.com/Comfy-Org/ComfyUI.git' },
+  {
+    label: 'Pytorch 套件下载站',
+    tag: '阿里云国内站',
+    value: 'https://mirrors.aliyun.com/pytorch-wheels',
+  },
   { label: 'Python 下载站', value: 'https://www.python.org/downloads/' },
-  { label: 'PYPI 源', value: 'https://pypi.tuna.tsinghua.edu.cn/simple' },
+  { label: 'PYPI 源', tag: '清华大学', value: 'https://pypi.tuna.tsinghua.edu.cn/simple' },
+]
+
+/* 部署阶段清单：at 为该阶段完成时的进度百分比 */
+const DEPLOY_STEPS = [
+  { label: '创建部署目录', at: 10 },
+  { label: '下载并解压 Python', at: 35 },
+  { label: '创建虚拟环境', at: 50 },
+  { label: '安装 Pytorch+Cuda 套件', at: 75 },
+  { label: '拉取 ComfyUI 仓库', at: 90 },
+  { label: '安装依赖并完成部署', at: 100 },
 ]
 
 export default function DeployPage({ driver, versions, dir, progress, status, onPickDir, onDeploy }) {
+  /* 进行中：进度大于 0 且未完成 */
+  const pct = progress || 0
+  const active = pct > 0 && pct < 100
+
   return (
     <div className="p-6 space-y-5">
       {/* Hero */}
@@ -36,9 +55,9 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
           显卡用户。
         </p>
         <div className="mt-4 flex items-center gap-2">
-          <Button variant="primary" size="sm">
+          <Button variant="primary" size="sm" onClick={onDeploy} disabled={active}>
             <Rocket size={13} />
-            从零开始
+            {active ? '部署中...' : '从零开始'}
           </Button>
           <Button variant="glass" size="sm">
             <RotateCcw size={13} />
@@ -93,7 +112,12 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
         <div className="space-y-3">
           {DEPLOY_SOURCES.map((s) => (
             <FieldRow key={s.label} label={s.label}>
-              <div className="flex-1 min-w-0 px-3.5 py-2 rounded-xl bg-[var(--bg-card-lighter)] border border-[var(--border-main)]">
+              <div className="flex-1 min-w-0 px-3.5 py-2 rounded-xl bg-[var(--bg-card-lighter)] border border-[var(--border-main)] flex items-center gap-2">
+                {s.tag && (
+                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-[var(--bg-hover)] text-[10px] font-black text-[var(--text-sub)]">
+                    {s.tag}
+                  </span>
+                )}
                 <span className="text-[11px] font-mono text-[var(--text-main)] truncate block">
                   {s.value}
                 </span>
@@ -127,7 +151,10 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
         <div className="flex items-center gap-4">
           <div className="flex-1 h-2 rounded-full bg-[var(--bg-card-lighter)] overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all duration-500"
+              className={cx(
+                'h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all duration-500',
+                active && 'animate-pulse'
+              )}
               style={{ width: `${progress || 0}%` }}
             />
           </div>
@@ -136,10 +163,47 @@ export default function DeployPage({ driver, versions, dir, progress, status, on
           </span>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-md bg-[var(--bg-card-lighter)] border border-[var(--border-main)] text-[10px] font-black text-[var(--text-sub)]">
+          <span
+            className={cx(
+              'px-2 py-0.5 rounded-md border text-[10px] font-black',
+              active
+                ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-600'
+                : 'bg-[var(--bg-card-lighter)] border-[var(--border-main)] text-[var(--text-sub)]'
+            )}
+          >
             {status || '待命'}
           </span>
-          <span className="text-[11px] text-[var(--text-sub)]">等待部署任务开始...</span>
+          <span className="text-[11px] text-[var(--text-sub)]">
+            {active ? '部署进行中，请耐心等待...' : '等待部署任务开始...'}
+          </span>
+        </div>
+
+        {/* 阶段清单：完成后打勾 */}
+        <div className="mt-4 space-y-1.5">
+          {DEPLOY_STEPS.map((s, i) => {
+            const done = (progress || 0) >= s.at
+            const cur = !done && (i === 0 || (progress || 0) >= DEPLOY_STEPS[i - 1].at)
+            return (
+              <div key={s.label} className="flex items-center gap-2 text-[11px]">
+                {done ? (
+                  <Check size={12} className="text-[var(--success)] shrink-0" />
+                ) : cur && active ? (
+                  <Loader size={12} className="text-indigo-500 shrink-0 animate-spin" />
+                ) : (
+                  <span className="w-3 h-3 shrink-0 rounded-full border border-[var(--border-main)]" />
+                )}
+                <span
+                  className={
+                    done
+                      ? 'text-[var(--text-main)] font-black'
+                      : 'text-[var(--text-sub)]'
+                  }
+                >
+                  {s.label}
+                </span>
+              </div>
+            )
+          })}
         </div>
       </SectionCard>
     </div>

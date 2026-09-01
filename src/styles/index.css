@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * 恢复自动滚动按钮 —— 柔和上下跳动
+ * 依据「终端 启动后」截图：按钮有自动跳动动画
+ * 幅度小于 Tailwind 内置 animate-bounce，避免在终端里过于喧闹
+ */
+@keyframes bounce-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-bounce-soft {
+  animation: bounce-soft 1.1s ease-in-out infinite;
+}
+
+/* 尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-bounce-soft {
+    animation: none;
+  }
+}
+
+/* 终端日志流 —— 细滚动条，避免遮挡等宽日志 */
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-main);
+  border-radius: 4px;
+}
+
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

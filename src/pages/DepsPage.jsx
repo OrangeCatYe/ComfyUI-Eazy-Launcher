@@ -9,6 +9,9 @@ import {
   Save,
   RotateCcw,
   Gauge,
+  Copy,
+  Eraser,
+  Check,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { TextInput } from '../components/ui/Input'
@@ -33,14 +36,54 @@ import { SectionCard, FieldRow } from '../components/ui/Blocks'
 
 const MIRRORS = ['阿里云', '清华大学', '腾讯云', '华为云', '官方源']
 
-export default function DepsPage({ onAction }) {
+export default function DepsPage({ onAction, logs = [] }) {
   const [mirror, setMirror] = useState(MIRRORS[0])
   const [speed, setSpeed] = useState(null)
+  const [testing, setTesting] = useState(false)
   const [reqFile, setReqFile] = useState(null)
   const [libName, setLibName] = useState('')
   const [libVersion, setLibVersion] = useState('latest')
+  const [copied, setCopied] = useState(false)
 
   const fire = (name, payload) => onAction && onAction(name, payload)
+
+  /* 镜像源测速：逐个测速后取最快（无后端阶段本地模拟） */
+  const runSpeedTest = () => {
+    if (testing) return
+    setTesting(true)
+    fire('speedTest')
+    let i = 0
+    const timer = setInterval(() => {
+      if (i >= MIRRORS.length) {
+        clearInterval(timer)
+        /* 取模拟结果中最快的一个 */
+        const secs = MIRRORS.map(() => (Math.random() * 1.2 + 0.2).toFixed(3))
+        const fastest = secs.reduce((best, s) => (Number(s) < Number(best) ? s : best), secs[0])
+        const idx = secs.indexOf(fastest)
+        setMirror(MIRRORS[idx])
+        setSpeed(fastest)
+        setTesting(false)
+        fire('speedTestDone', { mirror: MIRRORS[idx], secs: fastest })
+        return
+      }
+      fire('speedTestOne', { mirror: MIRRORS[i], secs: (Math.random() * 1.2 + 0.2).toFixed(3) })
+      i += 1
+    }, 320)
+  }
+
+  /* 复制日志信息 */
+  const copyLogs = async () => {
+    const text = logs.map((l) => (typeof l === 'string' ? l : l.text)).join('\n')
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+      fire('copyLog')
+    } catch {
+      fire('copyLogFail')
+    }
+  }
 
   return (
     <div className="p-6 space-y-5">
@@ -61,14 +104,19 @@ export default function DepsPage({ onAction }) {
           {speed !== null && (
             <span className="text-[11px] font-black text-emerald-600 tnum">({speed} 秒)</span>
           )}
-          <Button variant="glass" size="sm">
+          <Button variant="glass" size="sm" onClick={() => fire('applyMirror', mirror)}>
             应用源
           </Button>
-          <Button variant="glass" size="sm" onClick={() => fire('speedTest')}>
-            <Gauge size={13} />
-            测速
+          <Button variant="glass" size="sm" onClick={runSpeedTest} disabled={testing}>
+            <Gauge size={13} className={testing ? 'animate-spin' : ''} />
+            {testing ? '测速中...' : '测速'}
           </Button>
         </div>
+        {testing && (
+          <div className="mt-2 text-[11px] text-[var(--text-sub)]">
+            正在依次测速 {MIRRORS.length} 个镜像源，完成后自动切换至最快源...
+          </div>
+        )}
       </SectionCard>
 
       {/* 2. 检测依赖文件 */}
@@ -175,6 +223,63 @@ export default function DepsPage({ onAction }) {
             <RotateCcw size={13} />
             恢复快照依赖
           </Button>
+        </div>
+      </SectionCard>
+
+      {/* 7. 输出日志与结果 —— 依据「环境依赖.png」右下角 */}
+      <SectionCard
+        title="输出日志与结果"
+        action={
+          <div className="flex items-center gap-1">
+            <Button variant="glass" size="sm" onClick={copyLogs} disabled={logs.length === 0}>
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? '已复制' : '复制日志信息'}
+            </Button>
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={() => fire('clearLog')}
+              disabled={logs.length === 0}
+            >
+              <Eraser size={13} />
+              清空日志信息
+            </Button>
+          </div>
+        }
+      >
+        <div
+          className="thin-scroll max-h-72 overflow-y-auto rounded-xl border border-[var(--border-main)] p-3.5 font-mono text-[11px] leading-relaxed"
+          style={{ background: 'var(--bg-main)' }}
+        >
+          {logs.length === 0 ? (
+            <div className="text-[var(--text-sub)] opacity-60">
+              [READY] 环境管理器已就绪
+              {'\n'}[TIPS] 变更依赖前，建议先执行「备份当前环境」
+            </div>
+          ) : (
+            logs.map((line, i) => {
+              const text = typeof line === 'string' ? line : line.text
+              const lvl = typeof line === 'string' ? null : line.level
+              return (
+                <div
+                  key={i}
+                  className={
+                    lvl === 'cmd'
+                      ? 'text-[var(--accent)] font-bold whitespace-pre-wrap break-all'
+                      : lvl === 'success'
+                        ? 'text-[var(--success)] whitespace-pre-wrap break-all'
+                        : lvl === 'warning'
+                          ? 'text-[var(--text-warning)] whitespace-pre-wrap break-all'
+                          : lvl === 'error'
+                            ? 'text-[var(--danger)] whitespace-pre-wrap break-all'
+                            : 'text-[var(--text-main)] opacity-80 whitespace-pre-wrap break-all'
+                  }
+                >
+                  {text || ' '}
+                </div>
+              )
+            })
+          )}
         </div>
       </SectionCard>
     </div>
