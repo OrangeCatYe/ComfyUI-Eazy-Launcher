@@ -12,6 +12,13 @@ import os
 import sys
 import threading
 
+for _stream in ("stdout", "stderr"):
+    _s = getattr(sys, _stream, None)
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 if BASE_DIR not in sys.path:
