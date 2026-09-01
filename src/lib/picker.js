@@ -2,13 +2,39 @@
  * 文件/目录选择器
  *
  * 环境差异说明：
+ *   - Eel 桌面模式：调用后端 tkinter 系统原生对话框，
+ *     能拿到真实绝对路径（如 C:\ComfyUI\...），是后端处理文件的前提。
  *   - File System Access API（showDirectoryPicker）能拿到真实目录句柄，
  *     可遍历、可读文件内容，但各浏览器在 file:// 下的支持不一致。
  *   - <input type="file" webkitdirectory> 兼容性最好，
  *     能拿到相对路径与文件内容，但拿不到绝对路径的盘符部分。
  *
- * 这里统一封装，上层按需取用；两者都只产生真实数据，不做任何伪造。
+ * 策略：后端可用时优先用后端（真实路径），否则依次降级；
+ * 两者都只产生真实数据，不做任何伪造。
  */
+
+import { isBackend, tryCall } from './backend'
+
+/* ============ 后端原生对话框（优先） ============ */
+
+/*
+ * 选择文件，返回真实绝对路径字符串（取消返回 null）。
+ * 后端不可用时返回 undefined，由调用方降级到浏览器方案。
+ */
+export async function pickFileBackend(title = '选择文件', filetypes = null) {
+  if (!isBackend()) return undefined
+  const r = await tryCall('dialog_pick_file', [title, filetypes])
+  if (!r) return null
+  return r.path || null
+}
+
+/* 选择目录，返回真实绝对路径字符串（取消返回 null） */
+export async function pickDirectoryBackend(title = '选择目录') {
+  if (!isBackend()) return undefined
+  const r = await tryCall('dialog_pick_dir', [title])
+  if (!r) return null
+  return r.path || null
+}
 
 /* ============ 目录句柄（首选，可遍历+读内容） ============ */
 

@@ -6,6 +6,7 @@ import { Toggle } from '../components/ui/Toggle'
 import { Modal, ConfirmModal } from '../components/ui/Modal'
 import { TextInput } from '../components/ui/Input'
 import { useToast } from '../components/ui/Toast'
+import { call } from '../lib/backend'
 
 /*
  * 内核管理 —— 依据「内核管理.png」
@@ -24,7 +25,7 @@ const TABS = [
   { id: 'commits', label: '开发版 (Commits)' },
 ]
 
-export default function KernelPage({ versions = [], currentVersion, repoUrl, autoInstall, onToggleAutoInstall, onAction }) {
+export default function KernelPage({ versions = [], currentVersion, repoUrl, comfyRoot, autoInstall, onToggleAutoInstall, onAction }) {
   const [tab, setTab] = useState('releases')
   /* 切换仓库弹窗 / 切换版本二次确认 / 刷新中状态 */
   const [repoOpen, setRepoOpen] = useState(false)
@@ -34,17 +35,19 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
 
   const fire = (action, payload) => onAction?.(action, payload)
 
-  /* 刷新列表：需要后端执行 git fetch，前端无法完成 */
-  function handleRefresh() {
+  /* 刷新列表：由后端真实执行 git fetch --tags，结果见终端输出 */
+  async function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
-    fire('kernel-refresh')
-    showToast(
-      'alert',
-      '需要后端',
-      '拉取版本列表需要后端执行 git 操作，当前为纯前端预览，未真实执行。'
-    )
-    setTimeout(() => setRefreshing(false), 800)
+    try {
+      const r = await call('kernel_list_versions', [comfyRoot], '拉取版本列表需要后端执行 git 操作')
+      showToast('success', '刷新完成', `已真实拉取 ${(r.versions || []).length} 个版本标签，详见终端输出。`)
+      fire('kernel-refresh')
+    } catch (e) {
+      showToast('alert', '刷新失败', e?.message || '拉取版本列表失败。')
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   return (
@@ -172,14 +175,15 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
         open={repoOpen}
         current={repoUrl}
         onClose={() => setRepoOpen(false)}
-        onConfirm={(url) => {
+        onConfirm={async (url) => {
           setRepoOpen(false)
-          fire('kernel-switch-repo', url)
-          showToast(
-            'alert',
-            '需要后端',
-            '切换仓库需要后端执行 git remote set-url，当前为纯前端预览，地址仅记录在设置中，未真实切换。'
-          )
+          try {
+            const r = await call('kernel_set_remote', [comfyRoot, url], '切换仓库需要后端执行 git 操作')
+            showToast('success', '切换完成', `已真实切换到 ${r.url || url}`)
+            fire('kernel-switch-repo', url)
+          } catch (e) {
+            showToast('alert', '切换失败', e?.message || '切换仓库失败。')
+          }
         }}
       />
 
@@ -187,14 +191,16 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, aut
       <ConfirmModal
         open={Boolean(switchTarget)}
         onClose={() => setSwitchTarget(null)}
-        onConfirm={() => {
-          fire('kernel-switch-version', switchTarget?.version)
+        onConfirm={async () => {
+          const ver = switchTarget?.version
           setSwitchTarget(null)
-          showToast(
-            'alert',
-            '需要后端',
-            `切换到 ${switchTarget?.version || ''} 需要后端执行 git checkout 与依赖重建，当前为纯前端预览，未真实切换。`
-          )
+          try {
+            await call('kernel_checkout', [comfyRoot, ver], '切换版本需要后端执行 git 与依赖重建')
+            showToast('success', '切换完成', `已真实切换到版本 ${ver}`)
+            fire('kernel-switch-version', ver)
+          } catch (e) {
+            showToast('alert', '切换失败', e?.message || '切换版本失败。')
+          }
         }}
         title="切换内核版本"
         message={`确认将内核切换到「${switchTarget?.version || ''}」？切换过程会拉取对应版本并重建依赖。`}

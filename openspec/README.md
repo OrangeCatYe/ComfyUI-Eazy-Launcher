@@ -13,6 +13,7 @@ openspec/
 │   ├── components.md    通用组件规格
 │   ├── navigation.md    信息架构与路由
 │   ├── terminal.md      终端输出协议（三个非弹窗功能的契约）
+│   ├── backend.md       Python Eel 后端接口契约（2026-09-02 新增）
 │   └── pages/
 │       ├── README.md    页面索引 + 交互完备性要求
 │       ├── home.md
@@ -23,6 +24,28 @@ openspec/
 │       ├── settings.md
 │       └── tools.md     10 个工具页汇总
 ```
+
+## 运行形态（2026-09-02 更新）
+
+项目已接入 **Python Eel 后端**，不再是纯前端预览：
+
+```
+backend/
+├── main.py              入口：依赖自愈 + 托管 dist + 暴露 33 个接口
+├── requirements.txt     eel / imageio-ffmpeg
+├── 启动脚本             根目录「启动 ComfyUI_KK.bat」
+└── services/
+    ├── runner.py        统一子进程执行（超时/编码/隐藏控制台）
+    ├── git_ops.py       内核版本与插件的 git 操作
+    ├── pip_ops.py       pip 安装/卸载/导出/快照恢复
+    ├── ffmpeg_ops.py    ffmpeg 无感自动安装 + 转码/抽帧/压缩
+    ├── fs_ops.py        文件删除（回收站优先）与目录列举
+    ├── env_ops.py       Python/Pytorch/GPU/显存/Git 真实探测
+    ├── plugin_ops.py    插件启用/停用/卸载/更新/回滚
+    └── launch_ops.py    ComfyUI 进程启动与管理（真实 PID）
+```
+
+前端通过 `src/lib/backend.js` 桥接层调用，统一返回 `{ ok, data, error, log }`。
 
 ## 总则
 
@@ -93,10 +116,28 @@ openspec/
 | 配置导出/导入 | 真实读写 JSON 文件 | `SaveBar` |
 | 我的作品 / 工作流 | 真实遍历目录列文件 | `scanFilesDirectory()` |
 
-### 标注为「需要后端」的功能
+### 标注为「需要后端」的功能（2026-09-02 进度更新）
 
-内核版本拉取与切换、插件安装/启停/卸载/批量操作、快照恢复执行、
-媒体转码、文件删除、部署流程。**这些在 UI 上均明确提示，不产生假结果。**
+**已接入真实后端（不再提示"需要后端"）**：
+
+| 功能 | 后端实现 | 接口 |
+|---|---|---|
+| 内核版本列表拉取 | `git fetch --tags` + `tag --sort` | `kernel_list_versions` |
+| 切换远程仓库 | `git remote set-url/add` | `kernel_set_remote` |
+| 切换内核版本 | `git checkout --force` + 子模块更新 | `kernel_checkout` |
+| 插件列表 | 真实读取 `custom_nodes` | `plugins_list` |
+| 插件启用/停用 | 目录重命名（可逆） | `plugin_set_enabled` |
+| 插件卸载 | 删除目录（回收站优先） | `plugin_uninstall` |
+| 插件更新/回滚 | `git pull` / `git reset --hard HEAD~1` | `plugin_update` / `plugin_rollback` |
+| 快照依赖比对 | `pip freeze` 后与快照 diff | `pip_preview_snapshot` |
+| 快照依赖恢复 | `pip uninstall` + `pip install` | `pip_restore_snapshot` |
+| 媒体转码/抽帧/压缩 | ffmpeg（无感自动安装） | `ffmpeg_*` |
+| 文件删除 | 回收站优先，越界拒绝 | `fs_delete` |
+| 启动 ComfyUI | 真实子进程 + 真实 PID | `launch_start` |
+| 环境探测 | Python/Pytorch/GPU/显存/Git | `env_detect` |
+| 文件/目录选择 | 系统原生对话框（真实绝对路径） | `dialog_pick_*` |
+
+**仍为前端占位**（后端已备接口，UI 待接入）：初恋部署的一键流程。
 
 ### 浏览器限制（重要）
 
@@ -114,7 +155,20 @@ openspec/
 
 ## 尚未接入的部分
 
-- **数据**：所有列表为空，等真实数据接入后 UI 层无需改动
-- **后端**：`src/lib/api.js` 全部为模拟实现，
-  函数签名与参数顺序已按 terminal.md 对齐，接入时只替换函数体
+- **数据**：列表在环境路径配置后由后端自动填充，UI 层无需改动
+- **后端**：`src/lib/api.js` 已接入 Eel 真实实现，
+  仅保留前端可真实完成的逻辑（requirements 解析与比对）
+- **部署**：初恋部署的一键流程仍为前端占位，后端接口已备
 - **P2 待校准**：见 `../docs/DESIGN.md` 第 9 节
+
+## ffmpeg 自动安装策略（用户无感）
+
+优先级依次降级，**全程无需用户干预**：
+
+1. ComfyUI 整合包内置 / `imageio-ffmpeg`
+2. 系统 PATH 中的 `ffmpeg`
+3. 常见安装位置扫描（Windows 各盘符、`LOCALAPPDATA`）
+4. 后台静默 `pip install imageio-ffmpeg`
+
+启动时后台预热；若调用时尚未就绪，前端轮询等待（最长 4 分钟），
+用户侧只看到"处理中"，不会弹出任何安装提示或报错。

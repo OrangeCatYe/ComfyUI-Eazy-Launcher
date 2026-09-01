@@ -18,6 +18,7 @@
  */
 
 import { pickTextFile } from './picker'
+import { call } from './backend'
 
 /* ================= 依赖文件解析（纯前端可真实完成） ================= */
 
@@ -130,17 +131,29 @@ export async function findLibInPlugins(customNodesHandle, libName) {
   }
 }
 
-/* ================= 需要后端的函数（明确报错，不伪造结果） ================= */
+/* ================= 需要后端的函数（接入 Eel 后端后真实执行） ================= */
 
-const needBackend = (what) =>
-  Promise.reject(new Error(`${what} 需要后端支持（需执行 pip / 读取运行时状态），当前为纯前端预览，无法完成，也未返回模拟结果。`))
-
-/* 预览快照恢复差异 */
-export function previewRestoreSnapshot() {
-  return needBackend('快照恢复差异预览')
+/*
+ * 预览快照恢复差异
+ *
+ * 前端无法读取用户环境的真实依赖，必须交给后端 pip freeze 后比对。
+ * 后端不可用时抛出明确错误，不返回模拟结果。
+ */
+export async function previewRestoreSnapshot(pythonPath, targetText, push) {
+  return call(
+    'pip_preview_snapshot',
+    [pythonPath, targetText],
+    '快照恢复差异预览需要后端读取当前环境的真实依赖',
+    push
+  )
 }
 
-/* 执行快照恢复 */
-export function restoreEnvSnapshot() {
-  return needBackend('快照恢复')
+/* 执行快照恢复：由后端按差异真实执行 pip 安装/卸载 */
+export async function restoreEnvSnapshot(pythonPath, diff, indexUrl, push) {
+  return call(
+    'pip_restore_snapshot',
+    [pythonPath, diff.added || [], diff.removed || [], diff.changed || [], indexUrl || null],
+    '快照恢复需要后端执行 pip 安装/卸载',
+    push
+  )
 }

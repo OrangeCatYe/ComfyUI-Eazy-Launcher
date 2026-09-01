@@ -5,6 +5,8 @@ import { Button } from '../../components/ui/Button'
 import { SearchInput } from '../../components/ui/Input'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { useToast } from '../../components/ui/Toast'
+import { useSettings } from '../../store/settingsStore'
+import { call } from '../../lib/backend'
 
 /*
  * 工作流管家 —— 依据「工作流管家.png」
@@ -20,6 +22,11 @@ import { useToast } from '../../components/ui/Toast'
  */
 
 export default function WorkflowHubPage() {
+  /* 环境路径取自统一设置层（openspec：唯一来源） */
+  const { settings } = useSettings()
+  const comfyRoot = settings.comfyRoot || ''
+  const pythonPath = settings.pythonPrimary || ''
+
   const [keyword, setKeyword] = useState('')
   /* 以下为补齐的交互态：工作流列表与选中项 */
   const [workflows, setWorkflows] = useState([])
@@ -66,17 +73,24 @@ export default function WorkflowHubPage() {
     }
   }
 
-  /* 启动所选工作流：需要后端拉起 ComfyUI 并加载工作流 */
-  function handleLaunch() {
+  /* 启动所选工作流：由后端真实拉起 ComfyUI 进程 */
+  async function handleLaunch() {
     if (selectedNames.length === 0) {
       showToast('alert', '提示', '请先选择要启动的工作流')
       return
     }
-    showToast(
-      'alert',
-      '需要后端',
-      `启动工作流需要后端拉起 ComfyUI 并加载文件，当前为纯前端预览，未真实启动已选的 ${selectedNames.length} 个工作流。`
-    )
+    try {
+      showToast('info', '启动中', '正在拉起 ComfyUI 内核…')
+      const port = 8188
+      const st = await call('launch_status', [], '查询内核状态需要后端支持')
+      if (!st.running) {
+        await call('launch_start', [comfyRoot, pythonPath || null, port, []], '启动 ComfyUI 需要后端支持')
+      }
+      await call('launch_open_browser', [port], '打开浏览器需要后端支持')
+      showToast('success', '已启动', 'ComfyUI 内核已启动（真实 PID 见终端），请在 ComfyUI 中加载所选工作流。')
+    } catch (e) {
+      showToast('alert', '启动失败', e?.message || '启动 ComfyUI 时发生错误。')
+    }
   }
 
   return (

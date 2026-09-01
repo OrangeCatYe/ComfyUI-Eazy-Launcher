@@ -3,7 +3,8 @@ import { Film, Upload, Download, Scissors, VolumeX, FileVideo } from 'lucide-rea
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { useToast } from '../../components/ui/Toast'
-import { pickFile } from '../../lib/picker'
+import { pickFile, pickFileBackend } from '../../lib/picker'
+import { call } from '../../lib/backend'
 import { MEDIA_TABS, MEDIA_USAGE } from '../../config/tools'
 import cx from '../../lib/cx'
 
@@ -33,6 +34,49 @@ export default function MediaToolsPage() {
     trim: { title: '裁剪音频片段', desc: '按原格式截取片头、片尾或中间片段并保存到本地。', btn: '裁剪并保存' },
   }[tab]
 
+  /* ffmpeg 后台自动安装时轮询等待，用户无感 */
+  async function waitFfmpeg() {
+    for (let i = 0; i < 120; i++) {
+      const st = await call('ffmpeg_probe', [], 'ffmpeg 状态查询')
+      if (st.status === 'ready') return st
+      if (st.status === 'failed') throw new Error(st.error || 'ffmpeg 安装失败')
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    throw new Error('ffmpeg 自动安装超时，请检查网络后重试')
+  }
+
+  /* 输出文件与输入同目录，后缀按动作区分 */
+  function outPath(src, ext) {
+    return src.replace(/\.[^.\\/]+$/, '') + ext
+  }
+
+  async function handleProcess(label) {
+    setProcessing(true)
+    try {
+      showToast('info', '处理中', '正在准备 ffmpeg 运行环境…')
+      await waitFfmpeg()
+
+      const src = file.path
+      if (tab === 'extract') {
+        const dst = outPath(src, '.mp3')
+        await call('ffmpeg_transcode', [src, dst, 'copy', 'libmp3lame', ['-vn']], `${label}需要后端 ffmpeg`)
+        showToast('success', '提取完成', `已真实导出音频：${dst}`)
+      } else if (tab === 'mute') {
+        const dst = outPath(src, '.muted.mp4')
+        await call('ffmpeg_transcode', [src, dst, 'copy', 'none', ['-an']], `${label}需要后端 ffmpeg`)
+        showToast('success', '处理完成', `已真实导出静音视频：${dst}`)
+      } else {
+        const dst = outPath(src, '.trim.mp4')
+        await call('ffmpeg_compress', [src, dst, 23], `${label}需要后端 ffmpeg`)
+        showToast('success', '处理完成', `已真实导出裁剪片段：${dst}`)
+      }
+    } catch (e) {
+      showToast('alert', `${label}失败`, e?.message || '处理过程中发生错误。')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-main)] w-fit">
@@ -60,6 +104,15 @@ export default function MediaToolsPage() {
                 variant="glass"
                 size="sm"
                 onClick={async () => {
+                  /* 后端可用时取真实绝对路径，否则降级为浏览器文件名 */
+                  const backendPath = await pickFileBackend('选择媒体文件', [
+                    ['媒体文件', '*.mp4 *.mov *.avi *.mkv *.webm *.mp3 *.wav *.flac *.m4a'],
+                    ['所有文件', '*.*'],
+                  ])
+                  if (backendPath !== undefined) {
+                    if (backendPath) setFile({ name: backendPath.split(/[\\/]/).pop(), path: backendPath })
+                    return
+                  }
                   const f = await pickFile('video/*,audio/*')
                   if (f) setFile(f)
                 }}
@@ -95,15 +148,7 @@ export default function MediaToolsPage() {
                   showToast('alert', '提示', '请先选择本地媒体文件')
                   return
                 }
-                /*
-                 * 音视频转码/抽帧/压缩需要后端调用 ffmpeg，
-                 * 纯前端无法真实完成，因此明确告知，不假装处理成功。
-                 */
-                showToast(
-                  'alert',
-                  '需要后端',
-                  `${actionText.btn}需要后端调用 ffmpeg 处理媒体文件，当前为纯前端预览，未真实处理。`
-                )
+                handleProcess(actionText.btn)
               }}
             >
               {processing ? '处理中...' : actionText.btn}

@@ -1,0 +1,5 @@
+# ComfyUI_KK 启动器后端依赖
+# 说明：eel 提供前端托管与 JS<->Python 互调；
+#       imageio-ffmpeg 提供免配置、可静默安装的 ffmpeg 二进制（用户无感方案的主路径）。
+eel>=0.16.0
+imageio-ffmpeg>=0.4.9

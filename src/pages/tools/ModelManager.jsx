@@ -4,7 +4,8 @@ import { Button } from '../../components/ui/Button'
 import { SearchInput } from '../../components/ui/Input'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { ConfirmModal } from '../../components/ui/Modal'
-import { useToast } from '../../components/ui/Toast'
+import { call } from '../../lib/backend'
+
 import { MODEL_DIRS, MODEL_QUICK_FILTERS, MODEL_SORTS } from '../../config/tools'
 import { scanModelDirectory, formatBytes } from '../../lib/envScan'
 import cx from '../../lib/cx'
@@ -77,16 +78,28 @@ export default function ModelManagerPage() {
     showToast('success', '操作成功', `已将 ${selectedNames.length} 个模型设为常用（仅记录在本地）`)
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (selectedNames.length === 0) {
       showToast('alert', '提示', '请先勾选要删除的模型')
       return
     }
-    showToast(
-      'alert',
-      '需要后端',
-      '删除模型文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除。'
-    )
+    try {
+      const dir = currentDir || ''
+      const paths = selectedNames.map((n) => (dir ? `${dir.replace(/[\\/]+$/, '')}\\${n}` : n))
+      const r = await call('fs_delete', [paths, dir || null, true], '删除模型文件需要后端执行文件系统操作')
+      const failed = r.failed || []
+      showToast(
+        failed.length ? 'alert' : 'success',
+        failed.length ? '部分删除失败' : '删除完成',
+        failed.length
+          ? `成功 ${(r.deleted || []).length} 项，失败 ${failed.length} 项：${failed[0]?.error || ''}`
+          : `已真实删除 ${(r.deleted || []).length} 个模型（已移入回收站）`
+      )
+      setSelected({})
+      await handleRefresh()
+    } catch (e) {
+      showToast('alert', '删除失败', e?.message || '删除时发生错误。')
+    }
   }
 
   return (
@@ -250,11 +263,9 @@ export default function ModelManagerPage() {
         open={confirmDel}
         danger
         onClose={() => setConfirmDel(false)}
-        onConfirm={() => {
-          setModels((list) => list.filter((m) => !selected[m.name]))
-          setSelected({})
+        onConfirm={async () => {
           setConfirmDel(false)
-          showToast('success', '操作成功', `已删除 ${selectedNames.length} 个模型`)
+          await handleDelete()
         }}
         title="删除模型"
         message={`确认删除已选的 ${selectedNames.length} 个模型？此操作不可撤销。`}

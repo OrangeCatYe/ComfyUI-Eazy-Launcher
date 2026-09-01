@@ -8,3 +8,4 @@ dist-package
 
 Release/
 *.zip
+__pycache__/

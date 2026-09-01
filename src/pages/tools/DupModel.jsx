@@ -3,7 +3,8 @@ import { Copy, Play, Square, Trash2, Search, FolderOpen, Settings2, Loader2 } fr
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { Toggle } from '../../components/ui/Toggle'
-import { useToast } from '../../components/ui/Toast'
+import { call } from '../../lib/backend'
+
 import { pickScanDirectory, findDuplicates } from '../../lib/dupScan'
 import { formatBytes } from '../../lib/envScan'
 import { DUP_MODEL_EXTS } from '../../config/tools'
@@ -355,13 +356,27 @@ export default function DupModelPage() {
             variant="danger"
             size="sm"
             disabled={selectedPaths.length === 0}
-            onClick={() =>
-              showToast(
-                'alert',
-                '需要后端',
-                `删除文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除已选的 ${selectedPaths.length} 项。`
-              )
-            }
+            onClick={async () => {
+              try {
+                const r = await call(
+                  'fs_delete',
+                  [selectedPaths, scanPath || null, true],
+                  '删除文件需要后端执行文件系统操作'
+                )
+                const failed = r.failed || []
+                showToast(
+                  failed.length ? 'alert' : 'success',
+                  failed.length ? '部分删除失败' : '删除完成',
+                  failed.length
+                    ? `成功 ${(r.deleted || []).length} 项，失败 ${failed.length} 项：${failed[0]?.error || ''}`
+                    : `已真实移动 ${(r.deleted || []).length} 项到回收站`
+                )
+                setSelected({})
+                await handleScan()
+              } catch (e) {
+                showToast('alert', '删除失败', e?.message || '删除时发生错误。')
+              }
+            }}
           >
             <Trash2 size={13} />
             移动到回收站

@@ -6,6 +6,7 @@ import { ConfirmModal } from '../../components/ui/Modal'
 import { useToast } from '../../components/ui/Toast'
 import { WORKS_TYPE_FILTERS, WORKS_SORT } from '../../config/tools'
 import { scanFilesDirectory, MEDIA_EXTS, formatBytes } from '../../lib/envScan'
+import { call } from '../../lib/backend'
 
 /*
  * 我的作品 —— 依据「我的作品.png」
@@ -65,16 +66,27 @@ export default function MyWorksPage() {
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (selectedNames.length === 0) {
       showToast('alert', '提示', '请先勾选要删除的文件')
       return
     }
-    showToast(
-      'alert',
-      '需要后端',
-      `删除文件需要后端执行文件系统操作，当前为纯前端预览，未真实删除已选的 ${selectedNames.length} 项。`
-    )
+    try {
+      const paths = selectedNames.map((n) => `${currentDir.replace(/[\\/]+$/, '')}\\${n}`)
+      const r = await call('fs_delete', [paths, currentDir, true], '删除文件需要后端执行文件系统操作')
+      const failed = r.failed || []
+      showToast(
+        failed.length ? 'alert' : 'success',
+        failed.length ? '部分删除失败' : '删除完成',
+        failed.length
+          ? `成功 ${(r.deleted || []).length} 项，失败 ${failed.length} 项：${failed[0]?.error || ''}`
+          : `已真实删除 ${(r.deleted || []).length} 项（已移入回收站）`
+      )
+      setSelected({})
+      await handleRefresh()
+    } catch (e) {
+      showToast('alert', '删除失败', e?.message || '删除时发生错误。')
+    }
   }
 
   function handleUp() {

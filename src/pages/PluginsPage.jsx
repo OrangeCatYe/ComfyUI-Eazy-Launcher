@@ -33,11 +33,12 @@ export default function PluginsPage({ plugins = [], autoInstall, onToggleAutoIns
   /* 统一出口：日志走 App 终端，提示走 Toast */
   const fire = (action, payload) => onAction?.(action, payload)
   /*
-   * 插件的启停/卸载/回滚/批量操作都需要后端执行 git 与 pip，
-   * 纯前端无法真实完成，因此统一给出「需要后端」提示，不假装成功。
+   * 插件的启停/卸载/回滚/批量操作由 App.jsx 转发给后端真实执行，
+   * 执行结果（成功/失败）由终端日志与 Toast 如实反馈。
+   * 这里仅在后端不可用时补充说明，不假装成功。
    */
   const ok = (msg) =>
-    showToast('alert', '需要后端', `${msg} —— 该操作需后端执行 git/pip，当前为纯前端预览，未真实执行。`)
+    showToast('info', '已提交后端', `${msg} —— 正在由后端执行，结果见下方终端输出。`)
 
   const list = keyword.trim()
     ? plugins.filter(

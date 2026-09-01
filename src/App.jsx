@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
 import { TerminalDrawer } from './components/layout/TerminalDrawer'
@@ -8,7 +8,7 @@ import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
 import { SettingsProvider, useSettings } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
-import { pickDirectory, pickDirectoryHandle, supportsDirectoryPicker } from './lib/picker'
+import { pickDirectory, pickDirectoryHandle, pickFileBackend, pickTextFile, supportsDirectoryPicker } from './lib/picker'
 import { readLS, writeLS, LS } from './lib/storage'
 import { createLogger } from './lib/logger'
 import {
@@ -65,6 +65,8 @@ const PAGE_META = {
 }
 
 /* 工具卡图标解析：把配置里的图标名映射为 lucide 组件 */
+import { call } from './lib/backend'
+
 const TOOLS_WITH_ICONS = TOOLS.map((t) => ({ ...t, icon: ICONS[t.icon] || ICONS.Boxes }))
 
 function AppShell() {
@@ -92,6 +94,86 @@ function AppShell() {
   const [restoreDiff, setRestoreDiff] = useState(null)
   /* 动作标记：记录最后一次「恢复快照依赖」动作阶段 */
   const lastAction = useRef(null)
+
+  /* 内核版本列表：由后端 git fetch --tags 真实拉取 */
+  const [kernelVersions, setKernelVersions] = useState([])
+  /* 插件列表：由后端真实读取 custom_nodes 目录 */
+  const [plugins, setPlugins] = useState([])
+
+  /* ================= 后端调用辅助 ================= */
+
+  /*
+   * 统一执行一个后端动作：
+   *   - 成功走 onOk，并输出后端返回的真实日志
+   *   - 失败输出明确原因（不假装成功）
+   */
+  function runBackend(fn, args, onOk, label) {
+    call(fn, args, `${label}需要后端支持`, push)
+      .then((data) => onOk?.(data))
+      .catch((e) => push({ level: 'error', text: `>>> ${label}失败：${e?.message || e}` }))
+  }
+
+  /* 批量执行：逐个调用后端，汇总真实成功/失败结果 */
+  function runBatch(items, toCall, label) {
+    let done = 0
+    let failed = 0
+    items.reduce((chain, item) => {
+      const [fn, args] = toCall(item)
+      return chain
+        .then(() =>
+          call(fn, args, `批量${label}需要后端支持`, push).then(
+            () => {
+              done += 1
+              push({ level: 'info', text: ` - ${typeof item === 'string' ? item : item.name}：完成` })
+            },
+            (e) => {
+              failed += 1
+              push({
+                level: 'error',
+                text: ` - ${typeof item === 'string' ? item : item.name}：${e?.message || e}`,
+              })
+            }
+          )
+        )
+        .then(() => {})
+    }, Promise.resolve()).then(() => {
+      push({
+        level: failed ? 'warning' : 'success',
+        text: `>>> 批量${label}完成：成功 ${done} 个，失败 ${failed} 个`,
+      })
+    })
+  }
+
+  /* ================= 后端数据自动加载 ================= */
+
+  /*
+   * 环境路径就绪后，自动向后端拉取真实数据：
+   *   - 插件列表（真实读取 custom_nodes 目录）
+   *   - 内核版本列表（真实执行 git fetch --tags）
+   * 任一失败仅记录，不影响界面其它部分。
+   */
+  useEffect(() => {
+    if (!comfyRoot) return
+    let alive = true
+
+    call('plugins_list', [comfyRoot], '读取插件列表需要后端支持')
+      .then((d) => {
+        if (!alive) return
+        setPlugins(d.plugins || [])
+      })
+      .catch(() => {})
+
+    call('kernel_list_versions', [comfyRoot], '拉取内核版本需要后端支持')
+      .then((d) => {
+        if (!alive) return
+        setKernelVersions(d.versions || [])
+      })
+      .catch(() => {})
+
+    return () => {
+      alive = false
+    }
+  }, [comfyRoot])
 
   /* ================= 本地环境导入 ================= */
 
@@ -162,24 +244,39 @@ function AppShell() {
     switch (action) {
       case 'kernel-refresh':
         push({ level: 'cmd', text: '\n>>> 刷新版本列表' })
-        push({
-          level: 'warning',
-          text: '>>> 需要后端执行 git fetch --tags，当前为纯前端预览，未真实拉取，因此列表保持为空。',
-        })
+        runBackend(
+          'kernel_list_versions',
+          [settings.comfyRoot],
+          (data) => {
+            setKernelVersions(data.versions || [])
+            push({ level: 'success', text: `>>> 已拉取 ${(data.versions || []).length} 个版本标签` })
+          },
+          '刷新版本列表'
+        )
         break
       case 'kernel-switch-repo':
         push({ level: 'cmd', text: `\n>>> 切换远程仓库: ${payload}` })
-        push({
-          level: 'warning',
-          text: '>>> 需要后端执行 git remote set-url，当前未真实切换，地址仅记录在本地设置中。',
-        })
+        runBackend(
+          'kernel_set_remote',
+          [settings.comfyRoot, payload],
+          () => {
+            set('repoUrl', payload)
+            push({ level: 'success', text: '>>> 已真实切换远程仓库地址' })
+          },
+          '切换远程仓库'
+        )
         break
       case 'kernel-switch-version':
         push({ level: 'cmd', text: `\n>>> 切换内核版本: ${payload}` })
-        push({
-          level: 'warning',
-          text: '>>> 需要后端执行 git checkout 与依赖重建，当前未真实切换。',
-        })
+        runBackend(
+          'kernel_checkout',
+          [settings.comfyRoot, payload],
+          () => {
+            set('kernelVersion', payload)
+            push({ level: 'success', text: `>>> 已真实切换到版本 ${payload}` })
+          },
+          '切换内核版本'
+        )
         break
       default:
         push({ level: 'info', text: `>>> ${action}` })
@@ -192,23 +289,40 @@ function AppShell() {
     switch (action) {
       case 'install-plugin':
         push({ level: 'cmd', text: `\n>>> 安装插件: ${payload}` })
-        push({
-          level: 'warning',
-          text: '>>> 需要后端执行 git clone，当前为纯前端预览，未真实安装。',
-        })
+        runBackend(
+          'kernel_clone',
+          [payload, settings.comfyRoot ? `${settings.comfyRoot}/custom_nodes` : '', ''],
+          (data) => push({ level: 'success', text: `>>> 已真实安装到 ${data.path || ''}` }),
+          '安装插件'
+        )
         break
       case 'plugin-switch':
       case 'plugin-log':
         push({ level: 'info', text: typeof payload === 'string' && payload.startsWith('>>>') ? payload : `>>> 切换插件版本: ${payload}` })
-        push({ level: 'warning', text: '>>> 需要后端执行 git checkout，当前未真实切换。' })
+        runBackend(
+          'kernel_checkout',
+          [`${settings.comfyRoot}/custom_nodes/${payload?.name || payload}`, payload?.version],
+          () => push({ level: 'success', text: '>>> 已真实切换插件版本' }),
+          '切换插件版本'
+        )
         break
       case 'plugin-toggle':
-        push({ level: 'info', text: `>>> 切换插件状态: ${payload}` })
-        push({ level: 'warning', text: '>>> 需要后端操作插件目录，当前未真实改变状态。' })
+        push({ level: 'info', text: `>>> 切换插件状态: ${payload?.name || payload}` })
+        runBackend(
+          'plugin_set_enabled',
+          [settings.comfyRoot, payload?.name || payload, payload?.enabled],
+          () => push({ level: 'success', text: '>>> 已真实改变插件启用状态' }),
+          '切换插件状态'
+        )
         break
       case 'plugin-uninstall':
         push({ level: 'warning', text: `>>> 卸载插件: ${payload}` })
-        push({ level: 'warning', text: '>>> 需要后端删除插件目录，当前未真实卸载。' })
+        runBackend(
+          'plugin_uninstall',
+          [settings.comfyRoot, payload],
+          () => push({ level: 'success', text: '>>> 已真实卸载插件（已移入回收站）' }),
+          '卸载插件'
+        )
         break
       case 'batch-export': {
         /* 批量导出清单是纯前端可真实完成的：把选中项写成文件下载 */
@@ -228,18 +342,19 @@ function AppShell() {
       }
       case 'batch-update':
         push({ level: 'cmd', text: `\n>>> 批量更新 ${payload.length} 个插件` })
-        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
-        push({ level: 'warning', text: '>>> 需要后端执行 git pull，当前未真实更新。' })
+        runBatch(payload, (name) => ['plugin_update', [settings.comfyRoot, name]], '更新')
         break
       case 'batch-toggle':
         push({ level: 'cmd', text: `\n>>> 批量开关 ${payload.length} 个插件` })
-        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
-        push({ level: 'warning', text: '>>> 需要后端操作插件目录，当前未真实改变状态。' })
+        runBatch(
+          payload,
+          (item) => ['plugin_set_enabled', [settings.comfyRoot, item.name, item.enabled]],
+          '开关'
+        )
         break
       case 'batch-uninstall':
         push({ level: 'cmd', text: `\n>>> 批量卸载 ${payload.length} 个插件` })
-        payload.forEach((n) => push({ level: 'info', text: ` - ${n}` }))
-        push({ level: 'warning', text: '>>> 需要后端删除插件目录，当前未真实卸载。' })
+        runBatch(payload, (name) => ['plugin_uninstall', [settings.comfyRoot, name]], '卸载')
         break
       default:
         push({ level: 'info', text: `>>> ${action}` })
@@ -301,9 +416,10 @@ function AppShell() {
       case 'kernel':
         return (
           <KernelPage
-            versions={[]}
-            currentVersion="v0.33.1"
-            repoUrl="https://github.com/Comfy-Org/ComfyUI.git"
+            versions={kernelVersions}
+            currentVersion={settings.kernelVersion || env?.kernelVersion || ''}
+            repoUrl={settings.repoUrl || ''}
+            comfyRoot={comfyRoot}
             autoInstall={autoInstall}
             onToggleAutoInstall={setAutoInstall}
             onAction={handleKernelAction}
@@ -312,7 +428,7 @@ function AppShell() {
       case 'plugins':
         return (
           <PluginsPage
-            plugins={[]}
+            plugins={plugins}
             autoInstall={autoInstall}
             onToggleAutoInstall={setAutoInstall}
             safeMode={safeMode}
@@ -526,17 +642,65 @@ function AppShell() {
 
   /*
    * 恢复快照依赖
-   * 需要真实执行 pip 安装/卸载，纯前端无法完成，
-   * 因此明确告知用户，不再弹出伪造的差异表。
+   * 真实流程：后端 pip freeze 读取当前环境 → 与快照比对 → 展示真实差异表。
+   * 差异来自后端真实读取，不再有任何模拟数据。
    */
   async function runRestoreSnapshot() {
     setTerminalOpen(true)
     push({ level: 'cmd', text: '\n>>> 恢复快照依赖' })
-    push({
-      level: 'warning',
-      text: '>>> 该功能需要后端执行 pip 安装/卸载，当前为纯前端预览，无法完成。',
-    })
-    push({ level: 'info', text: '>>> 接入后端后，此处将列出真实的恢复差异并支持勾选执行。' })
+
+    const snapshotPath = await ensureSnapshotFile()
+    if (!snapshotPath) {
+      push({ level: 'error', text: '>>> 未选择快照文件，无法比对。' })
+      return
+    }
+
+    push({ level: 'info', text: `>>> 快照文件：${snapshotPath}` })
+    push({ level: 'cmd', text: '>>> 正在读取当前环境真实依赖...' })
+
+    try {
+      const diff = await call(
+        'pip_preview_snapshot',
+        [pythonPath, snapshotPath],
+        '读取当前环境依赖需要后端执行 pip freeze',
+        push
+      )
+      if (!diff.added?.length && !diff.removed?.length && !diff.changed?.length) {
+        push({ level: 'success', text: '>>> 当前环境与快照一致，无需恢复。' })
+        return
+      }
+      lastAction.current = '恢复快照依赖-预览'
+      setRestoreDiff({
+        snapshotPath,
+        /* 后端返回 added/removed/changed，映射为差异表弹窗的 install/remove/update */
+        remove: diff.removed || [],
+        update: diff.changed || [],
+        install: diff.added || [],
+        snapshotCount: (diff.removed || []).length + (diff.changed || []).length + (diff.added || []).length,
+      })
+      setRestoreOpen(true)
+      push({
+        level: 'success',
+        text: `>>> 比对完成：新增 ${diff.added?.length || 0}、移除 ${diff.removed?.length || 0}、变更 ${diff.changed?.length || 0}`,
+      })
+    } catch (e) {
+      push({ level: 'error', text: `>>> 比对失败：${e?.message || e}` })
+    }
+  }
+
+  /*
+   * 确保拿到快照文件的真实路径。
+   * 后端可用时用系统选择框取绝对路径；否则用浏览器选择并读取文本，
+   * 此时把文本连同文件名交给后端比对（后端兼容"直接传文本"）。
+   */
+  async function ensureSnapshotFile() {
+    const backendPath = await pickFileBackend('选择依赖快照文件', [
+      ['文本文件', '*.txt'],
+      ['所有文件', '*.*'],
+    ])
+    if (backendPath) return backendPath
+    const picked = await pickTextFile('.txt')
+    return picked?.text ?? null
   }
 
   /* 执行恢复快照依赖 */
@@ -546,7 +710,16 @@ function AppShell() {
     push({ level: 'cmd', text: `\n>>> 开始恢复快照依赖: ${path}` })
 
     try {
-      await restoreEnvSnapshot(pythonPath, path, selections)
+      await restoreEnvSnapshot(
+        pythonPath,
+        {
+          added: selections?.install || [],
+          removed: selections?.remove || [],
+          changed: selections?.update || [],
+        },
+        null,
+        push
+      )
       lastAction.current = '恢复快照依赖-执行'
       push({ level: 'success', text: '>>> 恢复快照依赖完成' })
       setRestoreOpen(false)
