@@ -7,6 +7,8 @@
  * 数据策略：空状态优先，所有列表默认为空（等待后端接入）
  */
 
+import { Cloud, Blocks, HardDrive, Cpu } from 'lucide-react'
+
 /* 模型管理 —— 目录与快捷筛选 */
 export const MODEL_DIRS = ['checkpoints', 'diffusion_models', 'loras', '其它目录']
 
@@ -70,6 +72,21 @@ export const AUTHOR_PLUGINS = [
 ]
 
 export const AUTHOR_TABS = ['推荐插件', '推荐工具', '资源网站', '软件声明', '作者信息']
+
+/*
+ * 首页快捷入口（环境已配置时展示）。
+ *
+ * 历史缺陷：HomePage 一直在渲染 QUICK_LINKS.map(...)，但该常量从未定义。
+ * 它藏在 configured 三元分支里，环境未配置时永不执行，
+ * 直到首次成功导入环境才触发 ReferenceError——被 ErrorBoundary 捕获。
+ * id 与 HomePage.handleQuickLink 的分支对齐（netdisk 打开网盘弹窗）。
+ */
+export const QUICK_LINKS = [
+  { id: 'netdisk', label: '网盘资料入口', desc: '夸克/百度/UC/迅雷网盘', icon: Cloud },
+  { id: 'plugins', label: '插件管理', desc: '已装插件开关与批量操作', icon: Blocks },
+  { id: 'tool:MODEL_MANAGER', label: '模型管理', desc: '扫描模型目录真实体积', icon: HardDrive },
+  { id: 'tools', label: '实用工具', desc: '识图反推、音视频处理等', icon: Cpu },
+]
 
 /* 首页快捷入口 —— 网盘资料入口（截图实证，含真实链接） */
 export const NETDISK_LINKS = [

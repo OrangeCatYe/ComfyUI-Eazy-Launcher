@@ -411,6 +411,7 @@ function AppShell() {
             onLaunch={handleLaunch}
             onImportEnv={handleImportEnv}
             onLog={push}
+            onNavigate={navigate}
           />
         )
       case 'kernel':

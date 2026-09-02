@@ -15,7 +15,7 @@ import { Button } from '../components/ui/Button'
 import { StatCard, SectionCard, EmptyState } from '../components/ui/Blocks'
 import { Modal } from '../components/ui/Modal'
 import { AddEnvironmentModal } from '../components/ui/AddEnvironmentModal'
-import { NETDISK_LINKS } from '../config/tools'
+import { NETDISK_LINKS, QUICK_LINKS } from '../config/tools'
 
 /*
  * 首页 —— 依据「首页-已配置环境.png」「首次启动-无配置.png」
@@ -33,13 +33,14 @@ import { NETDISK_LINKS } from '../config/tools'
 /* 未获取时的占位值，明确区别于真实的 0 */
 const UNKNOWN = '—'
 
-export default function HomePage({ config, env, onLaunch, running, onImportEnv, onLog }) {
+export default function HomePage({ config, env, onLaunch, running, onImportEnv, onLog, onNavigate }) {
   const configured = Boolean(config?.comfyRoot)
   const [netdiskOpen, setNetdiskOpen] = useState(false)
   const [addEnvOpen, setAddEnvOpen] = useState(false)
 
   const handleQuickLink = (id) => {
     if (id === 'netdisk') setNetdiskOpen(true)
+    else if (onNavigate) onNavigate(id)
   }
 
   return (
