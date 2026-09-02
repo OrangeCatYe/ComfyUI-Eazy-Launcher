@@ -140,11 +140,6 @@ function AppShell() {
     [settings.comfyRoot, deviceInfoLoading]
   )
 
-  /* push 初始化后回填 ref */
-  useEffect(() => {
-    pushRef.current = push
-  }, [push])
-
   /* 环境已配置且 detailed 数据缺失时，应用启动后自动补探测一次 */
   useEffect(() => {
     if (env && !env.detailed && settings.comfyRoot) {
@@ -500,6 +495,8 @@ function AppShell() {
   const [safeMode, setSafeMode] = useState(false)
 
   const { push, clear } = useMemo(() => createLogger(setLogs), [])
+  /* pushRef 在组件上方已声明；此处 push 已初始化，直接回填 */
+  pushRef.current = push
 
   const navigate = useCallback((id) => setPage(id), [])
 
