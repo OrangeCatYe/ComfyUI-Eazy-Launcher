@@ -785,7 +785,10 @@ function SoftwareTab() {
 /* ===================== 共用件 ===================== */
 
 function SaveBar() {
-  const { settings, reset } = useSettings()
+  /* set 必须一并解构：下方「导入配置」要靠它逐项写回设置。
+   * 漏解构会导致 set is not defined，且该错误发生在渲染阶段，
+   * 会把整个设置页打挂。 */
+  const { settings, set, reset } = useSettings()
   const { showToast } = useToast()
 
   /*

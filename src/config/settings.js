@@ -94,7 +94,6 @@ export const OPTIONS = {
   ],
   previewMethod: [
     AUTO,
-    { value: 'auto', label: '自动（由 ComfyUI 决定）' },
     { value: 'latent2rgb', label: 'Latent2RGB' },
     { value: 'taesd', label: 'TAESD（更快的潜在预览）' },
     { value: 'none', label: '不生成预览图' },

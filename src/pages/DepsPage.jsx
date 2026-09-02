@@ -81,7 +81,16 @@ const MIRRORS = [
 ]
 
 export default function DepsPage({ onAction, logs = [] }) {
-  const [mirror, setMirror] = useState(MIRRORS[0])
+  /*
+   * mirror 存的是镜像源**名称**（字符串），不是整个对象。
+   *
+   * 历史缺陷：初值写成 useState(MIRRORS[0])，即整个 {name,url} 对象。
+   * <option value={对象}> 会让 React 尝试把对象当作 children 渲染，
+   * 抛出 Minified React error #31（objects are not valid as a React child）。
+   * 而测速完成后 setMirror(best.name) 存的却是字符串 —— 两处本就不一致，
+   * 初值改成名称字符串后，读写两侧才真正对齐。
+   */
+  const [mirror, setMirror] = useState(MIRRORS[0].name)
   const [speed, setSpeed] = useState(null)
   const [testing, setTesting] = useState(false)
   const [reqFile, setReqFile] = useState(null)
@@ -155,8 +164,8 @@ export default function DepsPage({ onAction, logs = [] }) {
             className="px-3.5 py-2.5 rounded-xl bg-[var(--bg-card-lighter)] border border-[var(--border-main)] text-xs font-bold text-[var(--text-main)] outline-none focus:border-indigo-400"
           >
             {MIRRORS.map((m) => (
-              <option key={m} value={m}>
-                {m}
+              <option key={m.name} value={m.name}>
+                {m.name}
               </option>
             ))}
           </select>
