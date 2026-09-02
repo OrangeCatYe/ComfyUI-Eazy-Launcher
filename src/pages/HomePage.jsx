@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Power,
   FolderPlus,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { StatCard, SectionCard, EmptyState } from '../components/ui/Blocks'
@@ -33,7 +34,7 @@ import { NETDISK_LINKS, QUICK_LINKS } from '../config/tools'
 /* 未获取时的占位值，明确区别于真实的 0 */
 const UNKNOWN = '—'
 
-export default function HomePage({ config, env, onLaunch, running, onImportEnv, onLog, onNavigate }) {
+export default function HomePage({ config, env, onLaunch, running, onImportEnv, onLog, onNavigate, onRefreshDevice, deviceLoading }) {
   const configured = Boolean(config?.comfyRoot)
   const [netdiskOpen, setNetdiskOpen] = useState(false)
   const [addEnvOpen, setAddEnvOpen] = useState(false)
@@ -117,7 +118,23 @@ export default function HomePage({ config, env, onLaunch, running, onImportEnv, 
       </section>
 
       {/* 当前设备信息 —— 数据来自真实扫描结果，未获取显示「—」 */}
-      <SectionCard title="当前设备信息">
+      <SectionCard
+        title="当前设备信息"
+        action={
+          configured && onRefreshDevice ? (
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={() => onRefreshDevice()}
+              disabled={deviceLoading}
+              className="gap-1.5"
+            >
+              <RefreshCw size={12} className={deviceLoading ? 'animate-spin' : ''} />
+              {deviceLoading ? '探测中...' : '刷新设备信息'}
+            </Button>
+          ) : undefined
+        }
+      >
         {configured ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -95,6 +95,64 @@ function AppShell() {
 
   /* 本地环境扫描结果（真实数据，来自用户选择的目录） */
   const [env, setEnv] = useState(() => readLS(LS.ENV, null))
+
+  /*
+   * 设备信息真实探测（Python/Pytorch/GPU/显存/Git 版本）
+   *
+   * 导入环境时的扫描只覆盖目录结构与插件数，版本类信息
+   * 必须由后端 env_detect 真实运行解释器获取。后端可用时
+   * 自动补全；失败（如解释器不可用）则保留 null 显示「—」。
+   */
+  const [deviceInfoLoading, setDeviceInfoLoading] = useState(false)
+  /* push 定义在本组件较后位置，用 ref 转发避免渲染期引用未初始化常量 */
+  const pushRef = useRef(null)
+  const refreshDeviceInfo = useCallback(
+    async (comfyRootOverride) => {
+      const root = comfyRootOverride || settings.comfyRoot
+      if (!root || !isBackend() || deviceInfoLoading) return
+      setDeviceInfoLoading(true)
+      setTerminalOpen(true)
+      pushRef.current?.({ level: 'info', text: '>>> 正在探测设备信息（Python / Pytorch / GPU / 显存）...' })
+      try {
+        const r = await call('env_detect', [root], '设备信息探测需要后端支持', (...a) => pushRef.current?.(...a))
+        const d = r?.data || {}
+        setEnv((prev) => {
+          const next = {
+            ...(prev || {}),
+            pythonVersion: d.pythonVersion || null,
+            torchVersion: d.torchVersion || null,
+            gitVersion: d.gitVersion || null,
+            gpuName: d.gpuName || null,
+            vramUsage: d.vramUsage || null,
+            pythonPath: d.pythonPath || prev?.pythonPath || '',
+            detailed: Boolean(d.detailed),
+          }
+          writeLS(LS.ENV, next)
+          return next
+        })
+        pushRef.current?.({ level: 'success', text: '>>> 设备信息探测完成。' })
+      } catch (e) {
+        pushRef.current?.({ level: 'warning', text: `>>> 设备信息探测失败：${e?.message || e}（可在首页点击「刷新设备信息」重试）` })
+      } finally {
+        setDeviceInfoLoading(false)
+      }
+    },
+    [settings.comfyRoot, deviceInfoLoading]
+  )
+
+  /* push 初始化后回填 ref */
+  useEffect(() => {
+    pushRef.current = push
+  }, [push])
+
+  /* 环境已配置且 detailed 数据缺失时，应用启动后自动补探测一次 */
+  useEffect(() => {
+    if (env && !env.detailed && settings.comfyRoot) {
+      refreshDeviceInfo()
+    }
+    /* 仅在环境/根目录变化时触发一次 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [env?.comfyRoot, settings.comfyRoot])
   /* 初恋部署：进度与阶段状态 */
   const [deployProgress, setDeployProgress] = useState(0)
   const [deployStatus, setDeployStatus] = useState('待命')
@@ -281,6 +339,8 @@ function AppShell() {
     }
     setEnv(next)
     writeLS(LS.ENV, next)
+    /* 导入即探测版本类信息（Python/Pytorch/GPU/显存/Git），后端可用时自动填充 */
+    refreshDeviceInfo(payload.comfyRoot)
   }
 
   /* ================= 顶栏图标按钮 → 终端日志 ================= */
@@ -486,6 +546,8 @@ function AppShell() {
             onImportEnv={handleImportEnv}
             onLog={push}
             onNavigate={navigate}
+            onRefreshDevice={refreshDeviceInfo}
+            deviceLoading={deviceInfoLoading}
           />
         )
       case 'kernel':
