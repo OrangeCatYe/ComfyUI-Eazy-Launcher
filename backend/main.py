@@ -137,6 +137,24 @@ from services import env_ops, ffmpeg_ops, fs_ops, git_ops, launch_ops, pip_ops, 
 REQUIREMENTS = os.path.join(BASE_DIR, "requirements.txt")
 
 
+# ---------------------------------------------------------------- 通用
+
+def _decode(raw):
+    """把子进程字节输出安全解码为文本，避免 GBK 控制台崩溃。"""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    return raw or ""
+
+
+def _safe_print(text):
+    """Windows 中文控制台为 GBK，遇到无法编码的字符会抛异常，这里统一兜底。"""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(str(text).encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 # ---------------------------------------------------------------- 依赖自愈
 
 def _ensure_deps():
@@ -196,22 +214,6 @@ def _inject_eel_js():
 
 
 # ---------------------------------------------------------------- 通用
-
-def _decode(raw):
-    """把子进程字节输出安全解码为文本，避免 GBK 控制台崩溃。"""
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8", errors="replace")
-    return raw or ""
-
-
-def _safe_print(text):
-    """Windows 中文控制台为 GBK，遇到无法编码的字符会抛异常，这里统一兜底。"""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
-        print(str(text).encode(enc, errors="replace").decode(enc, errors="replace"))
-
 
 def _ok(data=None, log=None):
     return {"ok": True, "data": data or {}, "error": "", "log": log or []}
