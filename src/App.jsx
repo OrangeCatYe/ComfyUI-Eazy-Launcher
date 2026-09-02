@@ -449,6 +449,10 @@ function AppShell() {
           (data) => {
             setKernelVersions(data.versions || [])
             setKernelCommits(data.commits || [])
+            /* 后端基于 HEAD 实测的当前版本（describe），优先于本地缓存 */
+            if (data.currentVersion) {
+              set('kernelVersion', data.currentVersion)
+            }
             push({ level: 'success', text: `>>> 已拉取 ${(data.versions || []).length} 个版本标签、${(data.commits || []).length} 条开发版提交` })
           },
           '刷新版本列表'

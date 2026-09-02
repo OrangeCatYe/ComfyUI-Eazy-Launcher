@@ -134,7 +134,8 @@ export default function KernelPage({ versions = [], commits = [], currentVersion
                 </thead>
                 <tbody>
                   {(tab === 'releases' ? versions : commits).map((v) => {
-                    const isCurrent = v.version === currentVersion
+                    /* 优先用后端基于 HEAD 实测的 isCurrent，兜底按版本号匹配 */
+                    const isCurrent = v.isCurrent === true || v.version === currentVersion
                     return (
                       <tr
                         key={v.version}

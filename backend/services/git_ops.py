@@ -58,21 +58,30 @@ def list_versions(repo):
         repo,
         "for-each-ref",
         "--sort=-v:refname",
-        "--format=%(refname:short)%09%(contents:subject)%09%(creatordate:short)",
+        "--format=%(refname:short)%09%(contents:subject)%09%(creatordate:short)%09%(objectname)%09%(*objectname)",
         "refs/tags",
     )
     if not tr["ok"]:
         return {"ok": False, "error": tr["err"] or "读取版本列表失败", "log": log}
 
+    # HEAD 信息：用于标记「当前使用」的版本
+    head_r = _git(repo, "rev-parse", "HEAD")
+    head_hash = head_r["out"].strip() if head_r["ok"] else ""
+    desc_r = _git(repo, "describe", "--tags", "--always")
+    current_desc = desc_r["out"].strip() if desc_r["ok"] else ""
+
     versions = []
     for line in tr["out"].splitlines():
         if not line.strip():
             continue
-        parts = line.split("\t", 2)
+        parts = line.split("\t", 4)
+        # annotated tag 的 objectname 是 tag 对象，需用解引用后的提交哈希
+        tag_commit = (parts[4].strip() if len(parts) > 4 and parts[4].strip() else (parts[3].strip() if len(parts) > 3 else ""))
         versions.append({
             "version": parts[0].strip(),
             "name": (parts[1].strip() if len(parts) > 1 else ""),
             "date": (parts[2].strip() if len(parts) > 2 else ""),
+            "isCurrent": bool(head_hash and tag_commit == head_hash),
         })
     log.append("共读取到 {} 个版本标签".format(len(versions)))
 
@@ -89,7 +98,7 @@ def list_versions(repo):
             repo,
             "log",
             "--date=short",
-            "--pretty=format:%h%x09%s%x09%cd",
+            "--pretty=format:%H%x09%h%x09%s%x09%cd",
             "-50",
             branch,
         )
@@ -97,11 +106,13 @@ def list_versions(repo):
             for line in cl["out"].splitlines():
                 if not line.strip():
                     continue
-                parts = line.split("\t", 2)
+                parts = line.split("\t", 3)
+                full_hash = parts[0].strip()
                 commits.append({
-                    "version": parts[0].strip(),
-                    "name": (parts[1].strip() if len(parts) > 1 else ""),
-                    "date": (parts[2].strip() if len(parts) > 2 else ""),
+                    "version": (parts[1].strip() if len(parts) > 1 else full_hash[:7]),
+                    "name": (parts[2].strip() if len(parts) > 2 else ""),
+                    "date": (parts[3].strip() if len(parts) > 3 else ""),
+                    "isCurrent": bool(head_hash and full_hash == head_hash),
                 })
             log.append("共读取到 {} 条 {} 分支提交".format(len(commits), branch))
         else:
@@ -109,7 +120,16 @@ def list_versions(repo):
     else:
         log.append("未找到 origin/master 或 origin/main 分支，开发版列表为空")
 
-    return {"ok": True, "data": {"versions": versions, "commits": commits}, "log": log}
+    return {
+        "ok": True,
+        "data": {
+            "versions": versions,
+            "commits": commits,
+            "currentVersion": current_desc,
+            "currentHash": head_hash,
+        },
+        "log": log,
+    }
 
 
 def current_version(repo):
