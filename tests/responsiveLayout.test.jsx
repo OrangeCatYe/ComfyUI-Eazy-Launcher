@@ -70,7 +70,15 @@ describe('内容区可滚动（窗口变矮时内容不被裁掉）', () => {
 
     expect(short, '矮窗口下终端应收缩').toBeLessThan(tall)
     expect(short).toBeGreaterThanOrEqual(160)
-    expect(tall).toBeLessThanOrEqual(300)
+    expect(tall).toBeLessThanOrEqual(340)
+  })
+
+  it('默认终端高度提高到 340（用户反馈 300 不够高）', () => {
+    localStorage.removeItem('ui_terminal_height')
+    setViewport(1440, 1200)
+    mounted = mount(createElement(App))
+    const h = terminalHeightOf(mounted.div)
+    expect(h, '高窗口下默认高度应达到 340').toBe(340)
   })
 })
 

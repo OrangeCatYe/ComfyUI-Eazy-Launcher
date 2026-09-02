@@ -15,7 +15,7 @@ npm run test:cov     # 带覆盖率报告，产物在 coverage/index.html
 测试框架：**Vitest 2.x + jsdom**。用例目录 `tests/`，匹配 `tests/**/*.test.js`。
 配置在 `vite.config.js` 的 `test` 块，与构建共用一份别名，无需单独维护。
 
-## 二、当前覆盖范围（4 个模块 / 29 个用例，全部通过）
+## 二、当前覆盖范围（10 个模块 / 72 个用例，全部通过）
 
 | 测试文件 | 被测模块 | 用例数 | 验证的核心行为 |
 |---|---|---|---|
@@ -23,6 +23,12 @@ npm run test:cov     # 带覆盖率报告，产物在 coverage/index.html
 | `tests/findLibInPlugins.test.js` | `findLibInPlugins` | 5 | 扫描 custom_nodes 查引用插件 |
 | `tests/storage.test.js` | `storage.js` | 5 | localStorage 键名与读写往返 |
 | `tests/backend.test.js` | `backend.js` | 8 | Eel 桥接、无后端不假装成功 |
+| `tests/cx.test.js` | `cx.js` | 5 | className 合并、falsy 过滤 |
+| `tests/logger.test.js` | `logger.js` | 9 | 日志归一化、多行展开、对象 bug 防回归 |
+| `tests/picker.test.js` | `picker.js` | 7 | 后端优先路径、能力探测 |
+| `tests/envScan.test.js` | `envScan.js` | 12 | 空结果结构、体积格式化、扫描摘要、后缀常量 |
+| `tests/dupScan.test.js` | `dupScan.js` | 8 | 重复检测 name/hash 两模式（node 环境） |
+| `tests/icons.test.js` | `icons.js` | 2 | 图标导出完整性守卫 |
 
 ## 三、验收标准（逐条，可针对性修改）
 
@@ -65,9 +71,45 @@ npm run test:cov     # 带覆盖率报告，产物在 coverage/index.html
 - E7 `tryCall` 失败返回 `null` 不抛错。
 - E8 `emitLogs` 把后端 log 逐行推到终端回调。
 
+### F. className 合并 cx
+- F1 多个字符串以单空格拼接。
+- F2 过滤 `false` / `null` / `undefined` / `''` / `0` 等 falsy 值。
+- F3 条件为假时不产生多余空格。
+- F4 全 falsy 或无参数返回空字符串。
+
+### G. 日志写入器 logger
+- G1 push 纯字符串默认 info 级。
+- G2 push 对象按其 level 上色。
+- G3 **回归**：对象文本不会退化成 `[object Object]`。
+- G4 含 `\n` 的文本按行展开，每行沿用同一 level。
+- G5 push null / undefined 不产生日志行。
+- G6 `pushLines` 批量写入；`clear` 清空；每行带 `at` 时间戳。
+- G7 `delay(ms)` 返回按时 resolve 的 Promise。
+
+### H. 选择器 picker
+- H1 无后端时 `pickFileBackend` / `pickDirectoryBackend` 返回 `undefined`（交调用方降级）。
+- H2 后端返回真实路径时得到该路径。
+- H3 后端用户取消（无 path）返回 `null`。
+- H4 `supportsDirectoryPicker` 按 `window.showDirectoryPicker` 是否存在返回布尔。
+
+### I. 环境扫描 envScan（纯函数）
+- I1 `emptyScan` 各字段为「未识别」初始态。
+- I2 `formatBytes`：0/负数/null 返回 `—`；B/KB/MB/GB/TB 逐级换算，非字节位保留一位小数。
+- I3 `summarizeScan`：null 返回空数组；未识别时输出原因行。
+- I4 `summarizeScan`：识别成功含根目录、Python 环境类型、插件数、Git 状态；插件 >5 用「等」省略；无 Python 标注「未找到」。
+- I5 `MEDIA_EXTS` / `WORKFLOW_EXTS` 含关键后缀。
+
+### J. 重复检测 dupScan
+- J1 未选目录返回 `ok:false`。
+- J2 无匹配后缀文件返回空组。
+- J3 name 模式：同名文件（跨子目录）归为一组；文件名各异则无重复组。
+- J4 hash 模式：内容相同归组，内容不同不成组。
+- J5 后缀匹配大小写不敏感。
+- J6 进度回调被调用。
+
 ## 四、通过标准
 
-- **全绿即通过**：`npm test` 退出码为 0，`29 passed`。
+- **全绿即通过**：`npm test` 退出码为 0，`72 passed`。
 - **新增功能的门槛**：凡在 `src/lib/` 新增纯前端可计算的逻辑，必须补对应用例，
   并在本文件「验收标准」追加条目后再提交。
 - **改行为必改用例**：修改被测函数的行为时，先改这里的验收条目，再改用例，最后改实现（红-绿-重构）。
@@ -77,9 +119,12 @@ npm run test:cov     # 带覆盖率报告，产物在 coverage/index.html
 | 范围 | 为何不做单元测试 | 建议验证方式 |
 |---|---|---|
 | React 页面渲染 / 交互 | 依赖真实 DOM 与用户操作 | 后续可加 `@testing-library/react` 组件测试 |
-| `dupScan.js` 采样哈希 | 依赖 `crypto.subtle` 与真实大文件切片 | 可加集成测试喂真实小文件 |
+| `picker` / `envScan` 的 `<input webkitdirectory>` 降级 | 依赖真实 `<input>` 点击与窗口焦点事件 | 手动/E2E 验证 |
 | git / pip / ffmpeg 后端 | 需真实 Python Eel 环境与用户磁盘 | 后端侧单独测；前端只测「无后端时报错」 |
-| 目录选择 picker | 依赖浏览器原生对话框 | 手动验证 |
+| 目录选择原生对话框 | 依赖浏览器原生 picker | 手动验证 |
+
+> 注：`dupScan` 已纳入自动化，其测试跑在 **node 环境**（文件顶部 `// @vitest-environment node`），
+> 因为 jsdom 的 `Blob` / `crypto.subtle` 实现与真实浏览器有差异，node 内置实现更贴近真实结果。
 
 ## 六、后续可扩展方向
 

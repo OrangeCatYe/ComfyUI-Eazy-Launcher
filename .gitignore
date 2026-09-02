@@ -9,3 +9,12 @@ dist-package
 Release/
 *.zip
 __pycache__/
+
+# native build artifacts
+backend/native/*.obj
+backend/native/*.lib
+backend/native/*.pdb
+backend/native/*.ilk
+backend/native/*.dll
+backend/native/*.exp
+

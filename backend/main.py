@@ -8,8 +8,10 @@ ComfyUI_KK 启动器 —— Python Eel 后端入口
 
 前端通过 window.eel.xxx() 调用，返回统一结构 { ok, data, error, log }。
 """
+import json
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -68,7 +70,7 @@ def run_on_main(fn, timeout=600):
 for _stream in ("stdout", "stderr"):
     _s = getattr(sys, _stream, None)
     try:
-        _s.reconfigure(encoding="utf-8", errors="replace")
+        _s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     except Exception:  # noqa: BLE001
         pass
 
@@ -78,6 +80,57 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 WEB_DIR = os.path.join(ROOT_DIR, "dist")
+
+# ---------------------------------------------------------------- 窗口尺寸
+# 最小窗口尺寸：低于此尺寸界面元素会被挤压到不可读，
+# 因此在用户拖拽边框时强制拦截，不允许再缩小。
+#
+# 取值依据（在保证所有功能正常显示的前提下取最小可行值）：
+#   宽 1120 = 侧边栏 220（窄屏收起时为 64）+ 内容区最小 900
+#            内容区 900 可容纳：模型管理/插件表格 5 列不横向滚动、
+#            部署页左右分栏、设置页选项列表两列布局。
+#   高 700  = 顶栏 64 + 内容区最小 400 + 终端默认 340 的一半，
+#            保证开启终端后内容区仍有可视高度。
+#
+# 用户可自行覆盖：在项目根目录放 config.json，写
+#     {"min_window_width": 1280, "min_window_height": 800}
+# 详见 README「窗口最小尺寸」一节。配置文件缺失或写错时用下面的默认值。
+DEFAULT_MIN_WINDOW_WIDTH = 1120
+DEFAULT_MIN_WINDOW_HEIGHT = 700
+
+CONFIG_FILE = os.path.join(ROOT_DIR, "config.json")
+
+
+def _load_min_window_size():
+    """
+    读取用户配置的最小窗口尺寸，回退到内置默认值。
+
+    设计取舍：配置文件是给人手改的，所以不做严格校验抛错，
+    而是任何异常都静默回退 —— 启动时崩在配置读取上不值得。
+    """
+    width, height = DEFAULT_MIN_WINDOW_WIDTH, DEFAULT_MIN_WINDOW_HEIGHT
+
+    try:
+        if os.path.isfile(CONFIG_FILE):
+            # utf-8-sig：兼容记事本保存时写入的 BOM，
+            # 否则用户手改配置后会静默失效（实测踩过）
+            with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
+                cfg = json.load(f)
+            if isinstance(cfg, dict):
+                w = cfg.get("min_window_width")
+                h = cfg.get("min_window_height")
+                # 下限保护：小于此值界面必然变形，不采纳用户配置
+                if isinstance(w, int) and w >= 320:
+                    width = w
+                if isinstance(h, int) and h >= 240:
+                    height = h
+    except Exception as exc:  # noqa: BLE001
+        print("[backend] 读取 config.json 失败（{}），使用默认窗口尺寸。".format(exc))
+
+    return width, height
+
+
+MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT = _load_min_window_size()
 
 from services import env_ops, ffmpeg_ops, fs_ops, git_ops, launch_ops, pip_ops, plugin_ops  # noqa: E402
 
@@ -166,6 +219,40 @@ def _ok(data=None, log=None):
 
 def _fail(msg, log=None):
     return {"ok": False, "data": {}, "error": msg, "log": log or []}
+
+
+def _start_window_guard():
+    """
+    用**独立进程**承载窗口尺寸守护。
+
+    为什么不用线程：eel.start() 内部依赖 gevent，会 monkey-patch
+    time.sleep / threading 等。实测中守护线程在 eel.start() 之前
+    启动尚可，但进入 gevent 调度后表现异常（日志反复打印、约束不生效）。
+    独立进程完全不受 gevent 影响，行为可预期。
+
+    子进程用 detach 方式启动，父进程退出后它仍会在窗口关闭时自行结束
+    （检测不到窗口即退出），不会残留。
+    """
+    if sys.platform != "win32":
+        return
+
+    guard_script = os.path.join(BASE_DIR, "window_guard.py")
+    if not os.path.isfile(guard_script):
+        print("[backend] 未找到 window_guard.py，跳过最小尺寸约束。")
+        return
+
+    creationflags = 0x08000000  # CREATE_NO_WINDOW
+    try:
+        subprocess.Popen(
+            [sys.executable, guard_script,
+             str(MIN_WINDOW_WIDTH), str(MIN_WINDOW_HEIGHT)],
+            creationflags=creationflags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("[backend] 窗口守护进程启动失败（{}），跳过最小尺寸约束。".format(exc))
 
 
 # ---------------------------------------------------------------- 依赖文本比对
@@ -490,12 +577,19 @@ def main():
 
     threading.Thread(target=_prewarm_ffmpeg, daemon=True).start()
 
+    # 守护线程：强制窗口不小于最小尺寸，保证所有功能正常显示
+    _start_window_guard()
+
     mode, why = _pick_browser_mode()
     print("[backend] 浏览器模式：{}".format(why))
 
+    # 初始尺寸：不低于最小尺寸，避免启动瞬间被守护线程纠正而产生跳动
+    init_w = max(1440, MIN_WINDOW_WIDTH)
+    init_h = max(900, MIN_WINDOW_HEIGHT)
+
     port = 0
     try:
-        eel.start("index.html", mode=mode, size=(1440, 900), port=port, block=True)
+        eel.start("index.html", mode=mode, size=(init_w, init_h), port=port, block=True)
     except SystemExit:
         # 用户关闭窗口：Eel 以 sys.exit() 结束，属正常退出，绝不能再拉起新窗口
         pass
@@ -503,7 +597,7 @@ def main():
         # 探测通过但实际启动失败（如浏览器被策略拦截）：仅此一处降级，且只降级一次
         print("[backend] 以 {} 启动失败（{}），回退系统默认浏览器。".format(mode, exc))
         try:
-            eel.start("index.html", mode="default", size=(1440, 900), port=port, block=True)
+            eel.start("index.html", mode="default", size=(init_w, init_h), port=port, block=True)
         except SystemExit:
             pass
     return 0

@@ -53,12 +53,79 @@ export function TerminalDrawer({
   onOpenBrowser,
   onAiAnalyze,
   onExportLog,
+  onResize,
 }) {
   const bodyRef = useRef(null)
   /* 是否跟随底部自动滚动 */
   const [autoScroll, setAutoScroll] = useState(true)
   /* 程序自身滚动时置位，避免误判为用户上滑 */
   const programmatic = useRef(false)
+  /* 拖拽中（用于控制过渡动画与全局光标） */
+  const [dragging, setDragging] = useState(false)
+  /* 拖拽参数：起始 Y 与起始高度 */
+  const dragRef = useRef(null)
+
+  /*
+   * 拖拽改变终端高度
+   *
+   * 交互：按住顶部横条上下拖动，向上拖 = 终端变高（内容区变矮）。
+   * 用 pointer events（而非 mouse events）以同时支持鼠标与触摸，
+   * 并用 setPointerCapture 保证拖出面板范围后仍能跟随。
+   */
+  const startDrag = useCallback(
+    (e) => {
+      if (!open) return
+      e.preventDefault()
+      const startY = e.clientY
+      const startH = height
+      dragRef.current = { startY, startH }
+
+      setDragging(true)
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        /* 某些环境不支持指针捕获，忽略即可，move 监听仍能工作 */
+      }
+    },
+    [open, height]
+  )
+
+  const onDragMove = useCallback(
+    (e) => {
+      const d = dragRef.current
+      if (!d || !onResize) return
+      /* 向上拖动 clientY 变小 → 高度变大，故用 startY - clientY */
+      const delta = d.startY - e.clientY
+      onResize(d.startH + delta)
+    },
+    [onResize]
+  )
+
+  const endDrag = useCallback((e) => {
+    dragRef.current = null
+    setDragging(false)
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* 忽略：未捕获成功时无需释放 */
+    }
+  }, [])
+
+  /* 键盘可达性：聚焦分隔条后用方向键调整高度，兼顾无障碍 */
+  const onDragKeyDown = useCallback(
+    (e) => {
+      if (!onResize) return
+      const step = e.shiftKey ? 40 : 12
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        onResize(height + step)
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        onResize(height - step)
+      }
+    },
+    [height, onResize]
+  )
 
   /* 新日志到达时，仅在自动滚动模式下贴底 */
   useEffect(() => {
@@ -100,12 +167,56 @@ export function TerminalDrawer({
   return (
     <div
       className={cx(
-        'shrink-0 border-t border-[var(--border-main)] bg-[var(--bg-card)] overflow-hidden transition-all duration-300 ease-out',
+        'shrink-0 border-t border-[var(--border-main)] bg-[var(--bg-card)] overflow-hidden ease-out',
+        /*
+         * 拖拽时必须关掉过渡动画，否则高度变化会「追赶」指针，
+         * 手感明显发飘；松手后恢复 300ms 过渡用于展开/收起。
+         */
+        dragging ? 'transition-none' : 'transition-all duration-300',
         open ? 'opacity-100' : 'h-0 opacity-0 border-t-0'
       )}
       style={{ height: open ? height : 0 }}
     >
-      <div className="h-full flex flex-col">
+      {/*
+        拖拽把手：上下拖动改变终端高度。
+        cursor-row-resize 给出「可上下拖」的视觉暗示；
+        悬停/拖拽时高亮为强调色，让用户知道这里能拖。
+      */}
+      {open && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="拖动调整终端高度"
+          tabIndex={0}
+          title="拖动调整终端高度（也可用方向键，Shift 加速）"
+          onPointerDown={startDrag}
+          onPointerMove={onDragMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onKeyDown={onDragKeyDown}
+          className={cx(
+            'group relative h-1.5 shrink-0 cursor-row-resize select-none touch-none transition-colors',
+            'bg-transparent hover:bg-indigo-500/50',
+            dragging && 'bg-indigo-500'
+          )}
+        >
+          {/* 三条短横：视觉上提示「可拖拽区域」，悬停时加深 */}
+          <div
+            className={cx(
+              'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-[2px] pointer-events-none',
+              'opacity-0 group-hover:opacity-100 transition-opacity',
+              dragging && 'opacity-100'
+            )}
+          >
+            <span className="block h-[1px] w-8 rounded bg-white/70" />
+            <span className="block h-[1px] w-8 rounded bg-white/70" />
+            <span className="block h-[1px] w-8 rounded bg-white/70" />
+          </div>
+        </div>
+      )}
+
+      {/* flex-1 + min-h-0：让头部与日志区自动分配「减去拖拽条后」的剩余高度 */}
+      <div className="flex-1 min-h-0 flex flex-col">
         {/* 头部：运行控制 + 日志操作 */}
         <div className="h-10 shrink-0 px-4 flex items-center justify-between gap-3 border-b border-[var(--border-main)] bg-[var(--bg-card-lighter)]">
           <div className="flex items-center gap-2 min-w-0">

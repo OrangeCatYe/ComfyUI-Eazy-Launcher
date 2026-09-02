@@ -8,6 +8,8 @@ export const LS = {
   SETTINGS: 'kk_settings',
   TOOLS_ORDER: 'kk_tools_hub_order',
   TERMINAL_OPEN: 'ui_terminal_open',
+  /* 终端面板高度：用户拖拽后持久化，下次启动沿用 */
+  TERMINAL_HEIGHT: 'ui_terminal_height',
   SIDEBAR_SHORTCUTS: 'kk_sidebar_shortcuts',
   /* 本地环境扫描结果（真实数据，非模拟） */
   ENV: 'kk_local_env',

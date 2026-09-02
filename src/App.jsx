@@ -54,6 +54,16 @@ const TOOL_ROUTES = {
 const DEPLOY_DRIVER = {}
 const DEPLOY_VERSIONS = {}
 
+/*
+ * 终端面板高度策略
+ *   DEFAULT —— 默认高度。原为 300，用户反馈「不够高」，提高到 340。
+ *   MIN     —— 最小高度，低于此值日志区基本看不到内容。
+ *   MAX_RATIO —— 最大可占窗口高度的比例，给内容区至少留 30% 空间。
+ */
+const DEFAULT_TERMINAL_HEIGHT = 340
+const TERMINAL_MIN_HEIGHT = 160
+const TERMINAL_MAX_RATIO = 0.7
+
 const PAGE_META = {
   home: { title: '首页', subtitle: '设备状态与快捷入口' },
   kernel: { title: '内核管理', subtitle: 'ComfyUI 内核版本与仓库管理' },
@@ -90,25 +100,67 @@ function AppShell() {
   const [deployDir, setDeployDir] = useState('')
 
   /*
-   * 终端面板高度 —— 随窗口高度自适应
+   * 终端面板高度 —— 默认更高 + 随窗口自适应 + 可由用户拖拽覆盖
    *
-   * 修复前：TerminalDrawer 用固定 height=300 且 shrink-0。
-   * 窗口变矮时终端不让步，把上方内容区挤到看不见，且内容区无法滚动。
+   * 需求变更（用户反馈「终端窗口高度不够高，且不允许拖拽改变高度」）：
+   *   1. 默认高度从 300 提高到 340
+   *   2. 高度上限放宽到窗口高度的 70%（原来固定 300，拖不动也没意义）
+   *   3. 用户可以拖拽分隔条自定义高度，拖过之后就记住用户的值，
+   *      不再被 resize 覆盖（避免「用户调好了又被窗口事件改回去」）
    *
-   * 策略：取窗口高度的 30%，夹在 [160, 300] 之间；
-   * 极矮窗口（<600px）进一步压到 25%，保证内容区至少还有可视高度。
+   * 说明：窗口变矮时仍需收缩，否则会把内容区挤没 —— 但只在
+   * 「用户没有手动调过」或「用户的值超过当前可用空间」时才收缩。
    */
-  const [terminalHeight, setTerminalHeight] = useState(300)
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    const saved = Number(readLS(LS.TERMINAL_HEIGHT, 0))
+    return saved >= TERMINAL_MIN_HEIGHT ? saved : DEFAULT_TERMINAL_HEIGHT
+  })
+  /* 用户是否手动拖拽过终端高度 */
+  const [terminalHeightLocked, setTerminalHeightLocked] = useState(
+    () => Number(readLS(LS.TERMINAL_HEIGHT, 0)) >= TERMINAL_MIN_HEIGHT
+  )
+
+  const applyTerminalHeight = useCallback((h) => {
+    const max = Math.max(
+      TERMINAL_MIN_HEIGHT,
+      Math.round(window.innerHeight * TERMINAL_MAX_RATIO)
+    )
+    const next = Math.round(Math.min(max, Math.max(TERMINAL_MIN_HEIGHT, h)))
+    setTerminalHeight(next)
+    writeLS(LS.TERMINAL_HEIGHT, next)
+    return next
+  }, [])
+
+  /* 用户拖拽结束：记住该值，之后不再被 resize 覆盖 */
+  const handleTerminalResize = useCallback(
+    (h) => {
+      setTerminalHeightLocked(true)
+      applyTerminalHeight(h)
+    },
+    [applyTerminalHeight]
+  )
+
+  /* 窗口尺寸变化时：未锁定则按比例自适应；已锁定则仅在超出可用空间时收缩 */
   useEffect(() => {
     const compute = () => {
       const h = window.innerHeight
       const ratio = h < 600 ? 0.25 : 0.3
-      setTerminalHeight(Math.round(Math.min(300, Math.max(160, h * ratio))))
+      const auto = Math.round(Math.min(340, Math.max(200, h * ratio)))
+
+      setTerminalHeight((prev) => {
+        const max = Math.max(
+          TERMINAL_MIN_HEIGHT,
+          Math.round(h * TERMINAL_MAX_RATIO)
+        )
+        if (!terminalHeightLocked) return Math.min(auto, max)
+        /* 已锁定：只有当前值放不下时才收缩，否则尊重用户选择 */
+        return prev > max ? max : prev
+      })
     }
     compute()
     window.addEventListener('resize', compute)
     return () => window.removeEventListener('resize', compute)
-  }, [])
+  }, [terminalHeightLocked])
 
   /* 恢复快照依赖：差异表弹窗（terminal.md 4.1） */
   const [restoreOpen, setRestoreOpen] = useState(false)
@@ -892,6 +944,7 @@ function AppShell() {
           onAiAnalyze={handleAiAnalyze}
           onExportLog={handleExportLog}
           height={terminalHeight}
+          onResize={handleTerminalResize}
         />
       </div>
 
