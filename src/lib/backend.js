@@ -14,6 +14,29 @@ export function isBackend() {
   return typeof window !== 'undefined' && typeof window.eel !== 'undefined'
 }
 
+/*
+ * 等待 Eel 就绪。
+
+ * eel.js 是异步注入的，页面刚加载时 window.eel 可能还没挂上，
+ * 直接判断会误判成「浏览器模式」而降级，表现为莫名其妙的失败。
+ * 这里轮询等待；真正不可用（ file:// 或纯浏览器打开）则超时返回 false。
+ */
+export function waitBackend(timeoutMs = 8000) {
+  if (isBackend()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const timer = setInterval(() => {
+      if (isBackend()) {
+        clearInterval(timer)
+        resolve(true)
+      } else if (Date.now() - started > timeoutMs) {
+        clearInterval(timer)
+        resolve(false)
+      }
+    }, 50)
+  })
+}
+
 /* 供 UI 判断用：当前是否运行在 Eel 桌面模式 */
 export function backendMode() {
   return isBackend() ? 'eel' : 'browser'

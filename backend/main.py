@@ -127,7 +127,14 @@ def _inject_eel_js():
         return
     if "/eel.js" in html or "eel.js" in html:
         return
-    html = html.replace("</head>", '  <script src="/eel.js"></script>\n  </head>')
+    tag = '  <script src="/eel.js"></script>\n'
+    if "</head>" in html:
+        html = html.replace("</head>", tag + "  </head>")
+    elif "</body>" in html:
+        # 兜底：产物被压缩或改写导致没有 </head> 时，退到 </body> 前
+        html = html.replace("</body>", tag + "  </body>")
+    else:
+        html = html + "\n" + tag
     try:
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)

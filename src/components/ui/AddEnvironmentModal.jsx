@@ -3,7 +3,7 @@ import { FolderPlus, FolderOpen, CheckCircle2, AlertTriangle, Terminal, Loader2 
 import { Modal } from './Modal'
 import { Button } from './Button'
 import { scanEnvironmentFromPicker, summarizeScan, emptyScan } from '../../lib/envScan'
-import { isBackend, call, tryCall } from '../../lib/backend'
+import { isBackend, call, tryCall, waitBackend } from '../../lib/backend'
 
 /*
  * 后端模式扫描：
@@ -42,12 +42,14 @@ async function scanViaBackend() {
 
 export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
   const [scanning, setScanning] = useState(false)
+  const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState(null)
   const [manual, setManual] = useState(false)
   const [form, setForm] = useState({ comfyRoot: '', pythonPath: '' })
 
   const reset = useCallback(() => {
     setScanning(false)
+    setVerifying(false)
     setResult(null)
     setManual(false)
     setForm({ comfyRoot: '', pythonPath: '' })
@@ -62,8 +64,9 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
     setScanning(true)
     onLog?.({ level: 'cmd', text: '\n>>> 正在等待选择 ComfyUI 根目录...' })
     try {
-      /* 后端模式优先：原生目录框 + 后端真实扫描，避免 Eel 窗口下 API 不可用导致卡死 */
-      const r = isBackend() ? await scanViaBackend() : await scanEnvironmentFromPicker()
+      /* 先等 eel.js 就绪，否则会误判为浏览器模式，退回会挂起的 File System Access API */
+      const ready = await waitBackend()
+      const r = ready ? await scanViaBackend() : await scanEnvironmentFromPicker()
       if (!r) {
         /* 用户取消 */
         onLog?.({ level: 'warning', text: '操作已取消。' })
@@ -88,6 +91,52 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
   }, [onLog])
 
   const canImport = Boolean(form.comfyRoot?.trim())
+
+  /* 手动填写路径后的校验：复用后端扫描，识别成功则自动补全 Python 路径 */
+  const handleVerifyManual = useCallback(async () => {
+    const p = form.comfyRoot.trim()
+    if (!p || verifying) return
+    setVerifying(true)
+    onLog?.({ level: 'cmd', text: `\n>>> 校验路径：${p}` })
+    try {
+      /* eel.js 异步注入，先等它就绪，否则会误判成浏览器模式而降级 */
+      const ready = await waitBackend()
+      if (!ready) {
+        onLog?.({ level: 'warning', text: '>>> 当前非后端模式，无法校验路径，可直接导入。' })
+        setResult({ ...emptyScan(), comfyRoot: p, ok: false, reason: '非后端模式下未校验' })
+        return
+      }
+      const scan = await call('env_scan_root', [p], '校验路径需要后端支持')
+      const r = {
+        ok: Boolean(scan?.ok),
+        mode: 'backend',
+        rootName: scan?.rootName || p,
+        comfyRoot: scan?.comfyRoot || p,
+        nested: Boolean(scan?.nested),
+        pythonPath: scan?.pythonPath || '',
+        pythonSource: scan?.pythonSource || '',
+        hasGit: Boolean(scan?.hasGit),
+        pluginCount: scan?.pluginCount || 0,
+        plugins: scan?.plugins || [],
+        modelsDirs: scan?.modelsDirs || [],
+        requirements: scan?.requirements ?? null,
+        reason: scan?.ok ? '' : '未识别到 ComfyUI 内核特征',
+      }
+      summarizeScan(r).forEach((line) => onLog?.({ level: 'info', text: ` - ${line}` }))
+      if (r.ok) {
+        onLog?.({ level: 'success', text: '>>> 路径校验通过，请确认后导入。' })
+        setForm({ comfyRoot: r.comfyRoot, pythonPath: r.pythonPath || form.pythonPath })
+      } else {
+        onLog?.({ level: 'warning', text: `>>> ${r.reason}（仍可直接导入）` })
+      }
+      setResult(r)
+    } catch (e) {
+      onLog?.({ level: 'error', text: `>>> 校验失败：${e?.message || e}（仍可直接导入）` })
+      setResult({ ...emptyScan(), comfyRoot: p, ok: false, reason: `校验失败：${e?.message || e}` })
+    } finally {
+      setVerifying(false)
+    }
+  }, [form.comfyRoot, form.pythonPath, verifying, onLog])
 
   const handleImport = useCallback(() => {
     if (!canImport) return
@@ -117,7 +166,13 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
             <Button variant="glass" size="sm" onClick={handleClose}>
               取消
             </Button>
-            <Button variant="primary" size="sm" onClick={handleImport} disabled={!canImport}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleImport}
+              disabled={!canImport || scanning || verifying}
+              title={canImport ? '' : '请先填写或选择 ComfyUI 根目录'}
+            >
               导入环境
             </Button>
           </div>
@@ -125,7 +180,7 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
       }
     >
       <div className="space-y-4 pb-1">
-        {/* 第一步：选择文件夹 */}
+        {/* 第一步：选择文件夹（未扫描时展示引导） */}
         {!result && (
           <div className="border-2 border-dashed border-[var(--border-main)] rounded-2xl p-8 text-center">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mb-4 shadow-lg">
@@ -135,7 +190,7 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
             <p className="mt-1.5 text-[11px] text-[var(--text-sub)] leading-relaxed max-w-sm mx-auto">
               {scanning
                 ? '请在弹出的窗口中选择目录…'
-                : '点击下面的按钮，选择你的 ComfyUI 根目录。若目录为整合包的嵌套结构，会自动向下定位到真正的内核目录。'}
+                : '点击下面的按钮，选择你的 ComfyUI 根目录。若目录为整合包的嵌套结构，会自动向下定位到真正的内核目录。也可以直接在下方手动填写路径。'}
             </p>
             <Button
               variant="primary"
@@ -207,23 +262,6 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
               </div>
             )}
 
-            {/* 路径表单：自动填充，可手动修正 */}
-            <div className="space-y-3">
-              <Field
-                label="ComfyUI 根目录"
-                value={form.comfyRoot}
-                onChange={(v) => setForm((f) => ({ ...f, comfyRoot: v }))}
-                placeholder="例如：C:\ComfyUI\ComfyUI\ComfyUI"
-                required
-              />
-              <Field
-                label="主 Python 路径"
-                value={form.pythonPath}
-                onChange={(v) => setForm((f) => ({ ...f, pythonPath: v }))}
-                placeholder="例如：C:\ComfyUI\ComfyUI\standalone-env\python.exe"
-              />
-            </div>
-
             <button
               onClick={() => {
                 reset()
@@ -236,6 +274,42 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
             </button>
           </div>
         )}
+
+        {/* 路径表单：始终可见，支持不扫描直接手动填写 */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] font-black text-[var(--text-sub)]">
+              {result ? '路径信息（可手动修正）' : '或手动填写路径'}
+            </div>
+            {!result && !scanning && form.comfyRoot.trim() && (
+              <button
+                onClick={() => void handleVerifyManual()}
+                disabled={verifying}
+                className="press inline-flex items-center gap-1 text-[11px] font-black text-indigo-500 hover:text-indigo-600 disabled:opacity-50"
+              >
+                {verifying ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                {verifying ? '校验中…' : '校验并识别'}
+              </button>
+            )}
+          </div>
+          <Field
+            label="ComfyUI 根目录"
+            value={form.comfyRoot}
+            onChange={(v) => {
+              setForm((f) => ({ ...f, comfyRoot: v }))
+              /* 改动路径后旧结果失效，避免拿着过期的扫描结果导入 */
+              if (result) setResult(null)
+            }}
+            placeholder="例如：C:\ComfyUI\ComfyUI\ComfyUI"
+            required
+          />
+          <Field
+            label="主 Python 路径"
+            value={form.pythonPath}
+            onChange={(v) => setForm((f) => ({ ...f, pythonPath: v }))}
+            placeholder="例如：C:\ComfyUI\ComfyUI\standalone-env\python.exe"
+          />
+        </div>
 
         <div className="flex items-start gap-2 pt-1 border-t border-[var(--border-main)]">
           <Terminal size={13} className="text-[var(--text-sub)] shrink-0 mt-0.5" />
