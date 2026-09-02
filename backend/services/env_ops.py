@@ -6,6 +6,7 @@
 """
 import os
 import sys
+import threading
 
 from .runner import run, which
 
@@ -160,9 +161,36 @@ def _ask_python(python, code, timeout=120):
     return run([python, "-c", code], timeout=timeout)
 
 
-# torch 版本缓存：key=解释器路径。版本号在环境不变时不会变，
-# 缓存后重复刷新不再每次 import torch（5~15 秒）。
+# torch 版本缓存：key=解释器路径。
+# value = {"status": "pending"|"ok"|"failed", "version": str}
+# torch import 需要 5~15 秒，绝不阻塞 detect 主响应：
+# detect 只踢后台线程，前端经 env_detect_torch 轮询取结果。
 _TORCH_CACHE = {}
+_torch_lock = threading.Lock()
+_torch_threads = {}
+
+
+def _torch_probe_worker(python):
+    t = _ask_python(python, "import torch;print(torch.__version__)", timeout=300)
+    v = t["out"].splitlines()[-1].strip() if t["ok"] and t["out"] else ""
+    with _torch_lock:
+        _TORCH_CACHE[python] = {"status": "ok" if v else "failed", "version": v}
+        _torch_threads.pop(python, None)
+
+
+def _kick_torch_probe(python):
+    """后台启动 torch 版本探测（同一解释器只起一个线程，重复调用安全）。"""
+    with _torch_lock:
+        st = _TORCH_CACHE.get(python)
+        if st and st["status"] != "pending":
+            return
+        th = _torch_threads.get(python)
+        if th and th.is_alive():
+            return
+        _TORCH_CACHE[python] = {"status": "pending", "version": ""}
+        th = threading.Thread(target=_torch_probe_worker, args=(python,), daemon=True)
+        _torch_threads[python] = th
+        th.start()
 
 # GPU 型号与显存缓存：key=解释器路径。nvidia-smi 查询本身是毫秒级，
 # 缓存 10 秒避免连续点击刷新时重复查询。
@@ -211,72 +239,40 @@ def detect(comfy_root=None):
     一次性探测全套环境信息。
     返回 { data:{ pythonVersion, torchVersion, gpuName, vramUsage, gitVersion, pythonPath, ... } }
 
-    性能策略：
-      - GPU 型号/显存走 nvidia-smi（毫秒级），不再用 torch 查询
-      - torch 版本按解释器路径缓存（环境不变则命中，刷新秒回）
-      - Python 版本、torch 版本、git 版本三路并行，总耗时≈最慢一路
+    torch 版本不阻塞本接口：只踢后台探测线程并返回
+    torchStatus=pending，前端经 env_detect_torch 轮询填充。
+    其余（Python/GPU/显存/git）毫秒~秒级同步返回。
     """
-    import concurrent.futures as _fut
-
     try:
         python = _python_of(comfy_root)
     except PythonNotFoundError:
         python = ""
 
-    # 并行任务 1：Python 版本
-    def _pyver():
-        if not python:
-            return ""
-        pv = _ask_python(python, "import sys;print('{}.{}.{}'.format(*sys.version_info[:3]))")
-        return pv["out"].splitlines()[-1].strip() if pv["ok"] else ""
+    torch_status, torch_version = "skipped", ""
+    if python:
+        _kick_torch_probe(python)
+        with _torch_lock:
+            st = _TORCH_CACHE.get(python) or {}
+            torch_status = st.get("status", "skipped")
+            torch_version = st.get("version", "")
 
-    # 并行任务 2：torch 版本（带缓存）
-    def _torchver():
-        if not python:
-            return ""
-        cached = _TORCH_CACHE.get(python)
-        if cached:
-            return cached
-        t = _ask_python(
-            python,
-            "import torch;print(torch.__version__)",
-            timeout=300,
-        )
-        v = t["out"].splitlines()[-1].strip() if t["ok"] and t["out"] else ""
-        if v:
-            _TORCH_CACHE[python] = v
-        return v
+    gr = run(["git", "--version"], timeout=60)
+    git_version = gr["out"].strip() if gr["ok"] else ""
 
-    # 并行任务 3：GPU 型号 + 显存（nvidia-smi，10 秒缓存）
-    def _gpu():
+    gpu_name, vram = ("", "")
+    if python:
         import time as _time
         now = _time.time()
         if _GPU_CACHE["key"] == python and now - _GPU_CACHE["ts"] < _GPU_CACHE_TTL:
-            return _GPU_CACHE["gpu"], _GPU_CACHE["vram"]
-        gpu, vram = _gpu_via_nvidia_smi()
-        _GPU_CACHE.update({"ts": now, "key": python, "gpu": gpu, "vram": vram})
-        return gpu, vram
+            gpu_name, vram = _GPU_CACHE["gpu"], _GPU_CACHE["vram"]
+        else:
+            gpu_name, vram = _gpu_via_nvidia_smi()
+            _GPU_CACHE.update({"ts": now, "key": python, "gpu": gpu_name, "vram": vram})
 
-    # 并行任务 4：git 版本
-    def _gitver():
-        gr = run(["git", "--version"], timeout=60)
-        return gr["out"].strip() if gr["ok"] else ""
-
-    try:
-        with _fut.ThreadPoolExecutor(max_workers=4) as pool:
-            f_py = pool.submit(_pyver)
-            f_torch = pool.submit(_torchver)
-            f_gpu = pool.submit(_gpu)
-            f_git = pool.submit(_gitver)
-            python_version = f_py.result()
-            torch_version = f_torch.result()
-            gpu_name, vram = f_gpu.result()
-            git_version = f_git.result()
-    except Exception:  # noqa: BLE001 —— 并行框架异常时退回串行
-        python_version = _pyver()
-        torch_version = _torchver()
-        gpu_name, vram = _gpu()
-        git_version = _gitver()
+    python_version = ""
+    if python:
+        pv = _ask_python(python, "import sys;print('{}.{}.{}'.format(*sys.version_info[:3]))")
+        python_version = pv["out"].splitlines()[-1].strip() if pv["ok"] else ""
 
     return {
         "ok": True,
@@ -284,6 +280,7 @@ def detect(comfy_root=None):
             "pythonPath": python,
             "pythonVersion": python_version,
             "torchVersion": torch_version,
+            "torchStatus": torch_status,
             "gpuName": gpu_name,
             "vramUsage": vram,
             "gitVersion": git_version,
@@ -292,6 +289,25 @@ def detect(comfy_root=None):
         },
         "log": [],
     }
+
+
+def detect_torch(comfy_root=None):
+    """
+    查询 torch 版本探测结果（供前端轮询）。
+
+    若从未探测过则现场踢一次后台线程。返回 data：
+      status: ok（有结果）/ pending（探测中）/ failed（import 失败）
+      version: 版本号（ok 时有效）
+    """
+    try:
+        python = _python_of(comfy_root)
+    except PythonNotFoundError:
+        return {"ok": True, "data": {"status": "failed", "version": ""}, "log": []}
+
+    _kick_torch_probe(python)
+    with _torch_lock:
+        st = _TORCH_CACHE.get(python) or {"status": "pending", "version": ""}
+    return {"ok": True, "data": {"status": st["status"], "version": st["version"]}, "log": []}
 
 
 def validate_root(path):

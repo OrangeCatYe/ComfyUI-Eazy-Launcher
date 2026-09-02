@@ -144,7 +144,16 @@ export default function HomePage({ config, env, onLaunch, running, onImportEnv, 
                 value={env?.pythonVersion || UNKNOWN}
                 hint={env?.pythonPath ? '来自已识别的解释器' : '尚未获取'}
               />
-              <StatCard icon={Cpu} label="Pytorch 版本" value={env?.torchVersion || UNKNOWN} />
+              <StatCard
+                icon={Cpu}
+                label="Pytorch 版本"
+                value={
+                  env?.torchStatus === 'pending' && !env?.torchVersion
+                    ? '检测中...'
+                    : env?.torchVersion || UNKNOWN
+                }
+                hint={env?.torchStatus === 'failed' ? '该环境未安装 PyTorch' : undefined}
+              />
               <StatCard
                 icon={Cpu}
                 label="Git 版本"

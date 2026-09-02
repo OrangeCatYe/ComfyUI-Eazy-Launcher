@@ -104,6 +104,8 @@ function AppShell() {
    * 自动补全；失败（如解释器不可用）则保留 null 显示「—」。
    */
   const [deviceInfoLoading, setDeviceInfoLoading] = useState(false)
+  /* torch 独立探测中（轮询 env_detect_torch 期间为真） */
+  const torchPollingRef = useRef(false)
   /* push 定义在本组件较后位置，用 ref 转发避免渲染期引用未初始化常量 */
   const pushRef = useRef(null)
   const refreshDeviceInfo = useCallback(
@@ -112,7 +114,7 @@ function AppShell() {
       if (!root || !isBackend() || deviceInfoLoading) return
       setDeviceInfoLoading(true)
       setTerminalOpen(true)
-      pushRef.current?.({ level: 'info', text: '>>> 正在探测设备信息（Python / Pytorch / GPU / 显存）...' })
+      pushRef.current?.({ level: 'info', text: '>>> 正在探测设备信息（Python / GPU / 显存 / Git）...' })
       try {
         /* call() 契约：成功直接返回内层 data（非信封对象） */
         const d = await call('env_detect', [root], '设备信息探测需要后端支持', (...a) => pushRef.current?.(...a))
@@ -121,6 +123,7 @@ function AppShell() {
             ...(prev || {}),
             pythonVersion: d.pythonVersion || null,
             torchVersion: d.torchVersion || null,
+            torchStatus: d.torchStatus || null,
             gitVersion: d.gitVersion || null,
             gpuName: d.gpuName || null,
             vramUsage: d.vramUsage || null,
@@ -131,6 +134,46 @@ function AppShell() {
           return next
         })
         pushRef.current?.({ level: 'success', text: '>>> 设备信息探测完成。' })
+
+        /*
+         * torch 探测不阻塞其它数据：后端只踢后台线程并返回 pending。
+         * 此处独立轮询，结果到达后单独更新 torch 卡片，其余数据早已显示。
+         */
+        if (d.torchStatus === 'pending' && !torchPollingRef.current) {
+          torchPollingRef.current = true
+          let tries = 0
+          const timer = setInterval(async () => {
+            tries += 1
+            try {
+              const t = await call('env_detect_torch', [root], '', null)
+              if (t.status !== 'pending') {
+                clearInterval(timer)
+                torchPollingRef.current = false
+                setEnv((prev) => {
+                  const next = {
+                    ...(prev || {}),
+                    torchVersion: t.status === 'ok' ? t.version : null,
+                    torchStatus: t.status,
+                  }
+                  writeLS(LS.ENV, next)
+                  return next
+                })
+                if (t.status === 'ok') {
+                  pushRef.current?.({ level: 'success', text: `>>> PyTorch 版本获取成功：${t.version}` })
+                } else {
+                  pushRef.current?.({ level: 'warning', text: '>>> 该 Python 环境未安装 PyTorch，或 import 失败。' })
+                }
+              } else if (tries >= 30) {
+                clearInterval(timer)
+                torchPollingRef.current = false
+                pushRef.current?.({ level: 'warning', text: '>>> PyTorch 探测超时（45s），可稍后点击「刷新设备信息」重试。' })
+              }
+            } catch {
+              clearInterval(timer)
+              torchPollingRef.current = false
+            }
+          }, 1500)
+        }
       } catch (e) {
         pushRef.current?.({ level: 'warning', text: `>>> 设备信息探测失败：${e?.message || e}（可在首页点击「刷新设备信息」重试）` })
       } finally {

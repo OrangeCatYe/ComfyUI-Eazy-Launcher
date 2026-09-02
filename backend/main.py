@@ -308,6 +308,10 @@ def backend_ready():
 def env_detect(comfy_root=None):
     return env_ops.detect(comfy_root)
 
+@eel.expose
+def env_detect_torch(comfy_root=None):
+    return env_ops.detect_torch(comfy_root)
+
 
 @eel.expose
 def env_validate_root(path):
