@@ -16,38 +16,142 @@ class PythonNotFoundError(Exception):
     """无法确定 ComfyUI 使用的 Python 解释器时抛出。"""
 
 
-def _python_of(comfy_root):
-    """
-    按优先级推断 ComfyUI 使用的 Python 解释器。
+# 通用扫描时跳过的重目录：模型/输出/缓存目录文件数巨大，翻它们毫无意义
+_SCAN_SKIP = {
+    "models", "output", "temp", "input", "user", ".git", "__pycache__",
+    "custom_nodes", "node_modules", "comfy_extras", "comfy", "web",
+    "tests", "tests-unit", ".ci", ".github", "venv_cache", "pip_cache",
+}
 
-    找不到 venv / 独立环境时抛出 PythonNotFoundError，
-    绝不静默回退到系统 Python —— 系统 Python 几乎必然缺少
-    ComfyUI 依赖（sqlalchemy/torch 等），硬跑只会得到一条
-    难以理解的 ModuleNotFoundError 崩溃栈。
+# 通用扫描的目录深度上限（根目录 0 层起算）
+_SCAN_MAX_DEPTH = 3
+
+
+def _scan_python_exe(base_dir, max_depth=_SCAN_MAX_DEPTH):
     """
-    if not comfy_root:
-        raise PythonNotFoundError("未配置 ComfyUI 根目录，无法确定 Python 解释器")
-    for rel in (
-        os.path.join(".venv", "Scripts", "python.exe"),
-        os.path.join(".venv", "bin", "python"),
-        os.path.join("venv", "Scripts", "python.exe"),
-        os.path.join("venv", "bin", "python"),
+    在 base_dir 下有限深度广度优先搜索 python.exe（Windows）。
+
+    返回绝对路径或 None。只找「环境形态」的命中：
+    - 顶层（0-1 层）：直接命中即可（python_embeded\\python.exe 这类）
+    - 更深层：要求目录名含 python/venv/env 字样，避免误报
+    广度优先保证「浅而标准」的路径先于「深而奇怪」的路径被发现。
+    """
+    if not os.path.isdir(base_dir):
+        return None
+    is_win = sys.platform == "win32"
+    # 非 Windows 只找 python3/-python 可执行文件
+    exe_names = {"python.exe"} if is_win else {"python", "python3"}
+    queue = [(base_dir, 0)]
+    while queue:
+        cur, depth = queue.pop(0)
+        try:
+            entries = sorted(os.listdir(cur))
+        except OSError:
+            continue
+        # 当前目录直接命中（0 层的 base_dir 本身也可能是环境根）
+        for name in sorted(exe_names):
+            p = os.path.join(cur, name)
+            if os.path.isfile(p):
+                return p
+        if depth >= max_depth:
+            continue
+        for name in entries:
+            child = os.path.join(cur, name)
+            if not os.path.isdir(child) or name in _SCAN_SKIP or name.startswith((".", "__")):
+                continue
+            # 深层目录必须「长得像环境目录」才继续搜，避免全树乱翻
+            low = name.lower()
+            if depth >= 1 and not any(k in low for k in ("python", "venv", "env", "runtime")):
+                continue
+            queue.append((child, depth + 1))
+    return None
+
+
+def _system_python():
+    """系统 PATH 中的 Python（where/which），找不到返回 None。"""
+    if sys.platform == "win32":
+        r = run(["where", "python"], timeout=15)
+        if r["ok"]:
+            for line in r["out"].splitlines():
+                line = line.strip()
+                if line.lower().endswith("python.exe") and os.path.isfile(line):
+                    return line
+    else:
+        r = run(["which", "python3"], timeout=15)
+        if r["ok"]:
+            line = r["out"].splitlines()[0].strip() if r["out"].splitlines() else ""
+            if line and os.path.isfile(line):
+                return line
+    return None
+
+
+def _detect_python(comfy_root):
+    """
+    解释器探测核心，返回 (path, source) 或 (None, reason)。
+
+    优先级：
+      1. 专用环境：根目录 .venv/venv，上级 standalone-env/python_embeded/python.exe
+      2. 通用扫描：根目录与上级目录内有限深度搜索 python.exe
+      3. 系统 Python（PATH）—— 标注 source=system，
+         调用方应提醒用户它可能缺少 ComfyUI 依赖
+    """
+    if not comfy_root or not os.path.isdir(comfy_root):
+        return None, "no_root"
+
+    # 1. 专用环境（历史命名，命中率最高）
+    for rel, src in (
+        (os.path.join(".venv", "Scripts", "python.exe"), "venv"),
+        (os.path.join(".venv", "bin", "python"), "venv"),
+        (os.path.join("venv", "Scripts", "python.exe"), "venv"),
+        (os.path.join("venv", "bin", "python"), "venv"),
     ):
         p = os.path.join(comfy_root, rel)
         if os.path.exists(p):
-            return p
+            return p, src
 
     parent = os.path.dirname(comfy_root)
-    for rel in (
-        os.path.join("standalone-env", "python.exe"),
-        os.path.join("python_embeded", "python.exe"),
-        "python.exe",
+    for rel, src in (
+        (os.path.join("standalone-env", "python.exe"), "standalone"),
+        (os.path.join("python_embeded", "python.exe"), "embedded"),
     ):
         p = os.path.join(parent, rel)
         if os.path.exists(p):
-            return p
+            return p, src
+
+    # 2. 通用扫描：先上级后根目录？
+    #    否 —— 根目录自带的（.venv 之外的裸 python.exe）比上级更贴近项目，
+    #    但上级的 python_embeded 语义上更「专用」。综合：先扫根目录，
+    #    再扫上级，因为根目录命中意味着环境与项目直接绑定。
+    p = _scan_python_exe(comfy_root)
+    if p:
+        return p, "scan"
+    if parent and parent != comfy_root:
+        p = _scan_python_exe(parent, max_depth=2)
+        if p:
+            return p, "scan"
+
+    # 3. 系统 Python 兜底
+    p = _system_python()
+    if p:
+        return p, "system"
+
+    return None, "not_found"
+
+
+def _python_of(comfy_root):
+    """
+    按优先级推断 ComfyUI 使用的 Python 解释器，返回绝对路径。
+
+    探测顺序：专用环境 → 通用扫描（根目录+上级目录的 python.exe）→
+    系统 Python（PATH）。全部落空才抛 PythonNotFoundError。
+    """
+    p, src = _detect_python(comfy_root)
+    if p:
+        return p
+    if src == "no_root":
+        raise PythonNotFoundError("未配置 ComfyUI 根目录，无法确定 Python 解释器")
     raise PythonNotFoundError(
-        "未找到可用的 Python 解释器：{} 及其上级目录中没有 .venv / venv / standalone-env / python_embeded。"
+        "未找到可用的 Python 解释器：{} 及其上级目录中没有 python.exe，系统 PATH 中也没有 python。"
         "请在「全局设置 → 软件设置 → 主 Python」中手动指定解释器路径。".format(comfy_root)
     )
 
@@ -182,26 +286,7 @@ def _find_comfy_root(root, max_depth=3):
 
 def _find_python(comfy_root):
     """识别 Python 解释器绝对路径，返回 (path, source)。"""
-    for rel, src in (
-        (os.path.join(".venv", "Scripts", "python.exe"), "venv"),
-        (os.path.join(".venv", "bin", "python"), "venv"),
-        (os.path.join("venv", "Scripts", "python.exe"), "venv"),
-        (os.path.join("venv", "bin", "python"), "venv"),
-    ):
-        p = os.path.join(comfy_root, rel)
-        if os.path.exists(p):
-            return p, src
-
-    parent = os.path.dirname(comfy_root) or comfy_root
-    for rel, src in (
-        (os.path.join("standalone-env", "python.exe"), "standalone"),
-        (os.path.join("python_embeded", "python.exe"), "embedded"),
-        ("python.exe", "system"),
-    ):
-        p = os.path.join(parent, rel)
-        if os.path.exists(p):
-            return p, src
-    return "", ""
+    return _detect_python(comfy_root)
 
 
 def scan_root(path):
