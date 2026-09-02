@@ -29,7 +29,6 @@
 |---|---|---|
 | `comfyRoot` | ComfyUI 根目录 | 首页配置态、`查询引用插件` 校验 |
 | `pythonPrimary` | 主 Python 路径 | 首页、`恢复快照依赖` |
-| `pythonSecondary` | 副 Python 路径 | — |
 | `uiScale` | 界面缩放 | `<html data-font>` |
 
 ## 持久化

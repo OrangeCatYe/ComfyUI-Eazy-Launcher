@@ -328,25 +328,6 @@ function SoftwareTab() {
                 </Button>
               </FieldRow>
 
-              <FieldRow label="副 Python">
-                <TextInput
-                  value={settings.pythonSecondary}
-                  onChange={(e) => set('pythonSecondary', e.target.value)}
-                  placeholder="未配置"
-                />
-                <Button
-                  variant="glass"
-                  size="sm"
-                  onClick={async () => {
-                    const f = await pickFile('选择副 Python 解释器', [['可执行文件', '*.exe'], ['所有文件', '*.*']])
-                    if (f) set('pythonSecondary', f)
-                  }}
-                >
-                  <FileText size={13} />
-                  浏览文件
-                </Button>
-              </FieldRow>
-
               <FieldRow label="# 运行端口">
                 <TextInput
                   value={settings.port}

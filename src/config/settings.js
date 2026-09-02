@@ -24,7 +24,6 @@ export const DEFAULT_SETTINGS = {
   /* ---- 基础运行环境 ---- */
   comfyRoot: '',
   pythonPrimary: '',
-  pythonSecondary: '',
   port: '8188',
   sharedModelDir: '',
   extraModelPaths: '',
