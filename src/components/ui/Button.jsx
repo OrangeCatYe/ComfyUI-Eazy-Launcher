@@ -45,6 +45,12 @@ export function Button({
       disabled={disabled || loading}
       className={cx(
         'press rounded-xl font-black flex items-center justify-center gap-2',
+        /*
+         * shrink-0 + whitespace-nowrap：按钮作为 flex 子项时默认会被
+         * 兄弟元素（如输入框）挤压变窄，导致「浏览文件」「浏览目录」
+         * 这类标签在字中间断行。按钮标签不应换行，宽度交给兄弟项收缩。
+         */
+        'shrink-0 whitespace-nowrap',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         SIZES[size],
         VARIANTS[variant],
