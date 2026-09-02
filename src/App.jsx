@@ -56,11 +56,14 @@ const DEPLOY_VERSIONS = {}
  * 终端面板高度策略
  *   DEFAULT —— 默认高度。原为 300，用户反馈「不够高」，提高到 340。
  *   MIN     —— 最小高度，低于此值日志区基本看不到内容。
- *   MAX_RATIO —— 最大可占窗口高度的比例，给内容区至少留 30% 空间。
+ *   终端可上拉直到顶部：上限 = 窗口高度 - 顶栏(68px) - 拖拽把手(6px)，
+ *   不再限制 70% 比例（用户反馈「没办法上拉到顶部」）。
+ *   内容区 flex-1 min-h-0 自动收缩，终端占满时内容区为 0 但可滚动查看。
  */
 const DEFAULT_TERMINAL_HEIGHT = 340
 const TERMINAL_MIN_HEIGHT = 160
-const TERMINAL_MAX_RATIO = 0.7
+/* 顶栏 68px + 拖拽把手 6px：终端上拉的最大保留空间 */
+const TERMINAL_TOP_RESERVE = 74
 
 const PAGE_META = {
   home: { title: '首页', subtitle: '设备状态与快捷入口' },
@@ -121,7 +124,7 @@ function AppShell() {
   const applyTerminalHeight = useCallback((h) => {
     const max = Math.max(
       TERMINAL_MIN_HEIGHT,
-      Math.round(window.innerHeight * TERMINAL_MAX_RATIO)
+      window.innerHeight - TERMINAL_TOP_RESERVE
     )
     const next = Math.round(Math.min(max, Math.max(TERMINAL_MIN_HEIGHT, h)))
     setTerminalHeight(next)
@@ -144,12 +147,12 @@ function AppShell() {
       const h = window.innerHeight
       const ratio = h < 600 ? 0.25 : 0.3
       const auto = Math.round(Math.min(340, Math.max(200, h * ratio)))
+      const max = Math.max(
+        TERMINAL_MIN_HEIGHT,
+        h - TERMINAL_TOP_RESERVE
+      )
 
       setTerminalHeight((prev) => {
-        const max = Math.max(
-          TERMINAL_MIN_HEIGHT,
-          Math.round(h * TERMINAL_MAX_RATIO)
-        )
         if (!terminalHeightLocked) return Math.min(auto, max)
         /* 已锁定：只有当前值放不下时才收缩，否则尊重用户选择 */
         return prev > max ? max : prev

@@ -19,15 +19,15 @@ import cx from '../../lib/cx'
  *
  * 布局（原版为右侧栏，本项目为底部展开，功能对齐）：
  *   左：启动内核 / 停止运行 / 打开浏览器  +  # PID: --
- *   右：AI日志分析 / 生成日志 / 清空日志
+ *   右：开启日志自动滚动 / AI日志分析 / 生成日志 / 清空日志
  *   底：日志流（等宽字体）
  *
  * 核心交互（截图实证）：
  *   - 从下向上优雅展开：height 0 → h，配合 opacity 过渡
  *   - 未启动时显示「控制台就绪，等待启动...」
- *   - 日志流滚动时，若用户上滑离开底部，右下角浮出
- *     「恢复自动滚动」按钮，按钮带上下跳动动画
- *   - 用户滑回底部则自动恢复自动滚动，按钮隐藏
+ *   - 日志流默认自动滚动到底部；用户主动上滑时暂停自动滚动，
+ *     头部浮出「开启日志自动滚动」按钮（带跳动提示），
+ *     点击按钮或滑回日志最底部即恢复自动滚动
  */
 
 /* 底色按级别着色 */
@@ -60,6 +60,8 @@ export function TerminalDrawer({
   const [autoScroll, setAutoScroll] = useState(true)
   /* 程序自身滚动时置位，避免误判为用户上滑 */
   const programmatic = useRef(false)
+  /* 上次 scrollTop：判定用户是否在「向上滚动」 */
+  const lastScrollTopRef = useRef(0)
   /* 拖拽中（用于控制过渡动画与全局光标） */
   const [dragging, setDragging] = useState(false)
   /* 拖拽参数：起始 Y 与起始高度 */
@@ -132,6 +134,7 @@ export function TerminalDrawer({
     if (!open || !autoScroll || !bodyRef.current) return
     programmatic.current = true
     bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+    lastScrollTopRef.current = bodyRef.current.scrollTop
     /* 滚动事件在下一帧触发，用定时器复位标记 */
     const t = setTimeout(() => {
       programmatic.current = false
@@ -140,20 +143,36 @@ export function TerminalDrawer({
   }, [logs, open, autoScroll])
 
   const handleScroll = useCallback(() => {
-    if (programmatic.current || !bodyRef.current) return
+    if (!bodyRef.current) return
     const el = bodyRef.current
-    /* 距底 24px 内视为「已回到底部」 */
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-    setAutoScroll(atBottom)
+    /* 始终更新基准（含程序触发的滚动事件），保证「向上滚动」判定准确 */
+    const prev = lastScrollTopRef.current
+    lastScrollTopRef.current = el.scrollTop
+    /* 程序自身触发的滚动不参与状态判定 */
+    if (programmatic.current) return
+    /* 距底 24px 内视为「已回到底部」→ 恢复自动滚动 */
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 24) {
+      setAutoScroll(true)
+      return
+    }
+    /* 只有用户「向上滚动」（scrollTop 变小）才暂停自动滚动 */
+    if (el.scrollTop < prev - 2) {
+      setAutoScroll(false)
+    }
   }, [])
 
-  /* 滚回底部 */
+  /* 滚回底部并恢复自动滚动（头部按钮与底部悬浮按钮共用） */
   const scrollToBottom = useCallback(() => {
     const el = bodyRef.current
     if (!el) return
     programmatic.current = true
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    try {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } catch {
+      el.scrollTop = el.scrollHeight
+    }
     setAutoScroll(true)
+    lastScrollTopRef.current = el.scrollHeight
     setTimeout(() => {
       programmatic.current = false
     }, 400)
@@ -161,7 +180,10 @@ export function TerminalDrawer({
 
   /* 面板切换为打开时重置为贴底 */
   useEffect(() => {
-    if (open) setAutoScroll(true)
+    if (open) {
+      setAutoScroll(true)
+      lastScrollTopRef.current = bodyRef.current?.scrollTop || 0
+    }
   }, [open])
 
   return (
@@ -244,6 +266,17 @@ export function TerminalDrawer({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* 用户上滑暂停自动滚动后浮出；点击恢复贴底跟随 */}
+            {!autoScroll && (
+              <button
+                onClick={scrollToBottom}
+                title="开启日志自动滚动"
+                className="press inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-black text-indigo-500 bg-indigo-500/10 hover:bg-indigo-500/20 animate-bounce-soft"
+              >
+                <ArrowDownToLine size={11} />
+                开启日志自动滚动
+              </button>
+            )}
             <HeadBtn icon={Sparkles} label="AI日志分析" onClick={onAiAnalyze} />
             <HeadBtn icon={FileDown} label="生成日志" onClick={onExportLog} />
             <HeadBtn icon={Eraser} label="清空日志" onClick={onClear} />
@@ -276,14 +309,14 @@ export function TerminalDrawer({
             )}
           </div>
 
-          {/* 恢复自动滚动 —— 离开底部时浮出，带跳动动画 */}
+          {/* 开启日志自动滚动 —— 用户上滑暂停后浮出，带跳动动画 */}
           {!autoScroll && (
             <button
               onClick={scrollToBottom}
               className="absolute bottom-4 right-6 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-500 text-white text-[11px] font-black shadow-lg hover:bg-indigo-600 animate-bounce-soft"
             >
               <ArrowDownToLine size={12} />
-              恢复自动滚动
+              开启日志自动滚动
             </button>
           )}
         </div>
