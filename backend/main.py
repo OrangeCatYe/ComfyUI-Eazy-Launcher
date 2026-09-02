@@ -444,6 +444,42 @@ def _prewarm_ffmpeg():
         pass
 
 
+def _pick_browser_mode():
+    """
+    在打开窗口之前探测可用浏览器，返回 (mode, 说明)。
+
+    历史缺陷：原实现用三层嵌套 eel.start 做兜底：
+        try: chrome -> except: try: edge -> except: default
+    但 Eel 关闭窗口时走的是 sys.exit()（抛 SystemExit），
+    而 SystemExit 被 except 子句捕获了，于是被误判为「启动失败」：
+      关闭第 1 个窗口 -> 拉起 edge 版
+      关闭第 2 个窗口 -> 拉起 default 版（系统默认浏览器）
+      关闭第 3 个窗口 -> 才真正退出
+    即用户看到的「关掉又开、再关又在浏览器里打开」。
+
+    修复思路：把「浏览器探测」前置到开窗口之前（纯查询、无副作用），
+    确定唯一的 mode，然后只调用一次 eel.start。
+    这样既保留了「浏览器缺失时降级」的价值，又杜绝了关闭后的二次拉起。
+    """
+    try:
+        from eel import browsers as _brw
+    except Exception:  # noqa: BLE001
+        return 'default', '无法读取浏览器探测模块，回退系统默认浏览器'
+
+    for mode in ('chrome', 'edge'):
+        module = _brw._browser_modules.get(mode)
+        if module is None:
+            continue
+        try:
+            path = module.find_path()
+        except Exception:  # noqa: BLE001
+            path = None
+        if path:
+            return mode, '{}（{}）'.format(mode, path)
+
+    return 'default', '未探测到 Chrome / Edge，使用系统默认浏览器'
+
+
 def main():
     if not os.path.isdir(WEB_DIR):
         print("[backend] 未找到前端产物目录：{}".format(WEB_DIR))
@@ -454,14 +490,22 @@ def main():
 
     threading.Thread(target=_prewarm_ffmpeg, daemon=True).start()
 
+    mode, why = _pick_browser_mode()
+    print("[backend] 浏览器模式：{}".format(why))
+
     port = 0
     try:
-        eel.start("index.html", mode="chrome", size=(1440, 900), port=port, block=True)
-    except (OSError, SystemExit):
+        eel.start("index.html", mode=mode, size=(1440, 900), port=port, block=True)
+    except SystemExit:
+        # 用户关闭窗口：Eel 以 sys.exit() 结束，属正常退出，绝不能再拉起新窗口
+        pass
+    except OSError as exc:
+        # 探测通过但实际启动失败（如浏览器被策略拦截）：仅此一处降级，且只降级一次
+        print("[backend] 以 {} 启动失败（{}），回退系统默认浏览器。".format(mode, exc))
         try:
-            eel.start("index.html", mode="edge", size=(1440, 900), port=port, block=True)
-        except (OSError, SystemExit):
             eel.start("index.html", mode="default", size=(1440, 900), port=port, block=True)
+        except SystemExit:
+            pass
     return 0
 
 
