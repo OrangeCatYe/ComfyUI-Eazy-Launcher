@@ -64,6 +64,16 @@ def current_version(repo):
     return {"ok": True, "data": {"version": r["out"], "branch": cr["out"]}, "log": []}
 
 
+def get_remote(repo):
+    """读取 origin 远端地址；不存在返回空串。"""
+    if not is_repo(repo):
+        return {"ok": False, "error": "该目录不是 Git 仓库：{}".format(repo), "log": []}
+    r = _git(repo, "remote", "get-url", "origin")
+    if not r["ok"]:
+        return {"ok": True, "data": {"url": ""}, "log": []}
+    return {"ok": True, "data": {"url": r["out"].strip()}, "log": []}
+
+
 def set_remote(repo, url):
     """切换 origin 仓库地址；不存在 origin 时自动添加。"""
     if not is_repo(repo):

@@ -393,6 +393,10 @@ def kernel_current_version(repo):
 
 
 @eel.expose
+def kernel_get_remote(repo):
+    return git_ops.get_remote(repo)
+
+@eel.expose
 def kernel_set_remote(repo, url):
     return git_ops.set_remote(repo, url)
 

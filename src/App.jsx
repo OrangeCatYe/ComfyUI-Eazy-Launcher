@@ -224,6 +224,31 @@ function AppShell() {
 
   /* 内核版本列表：由后端 git fetch --tags 真实拉取 */
   const [kernelVersions, setKernelVersions] = useState([])
+
+  /*
+   * 内核仓库地址自动发现：
+   * 本地 ComfyUI 本身就是 git 仓库，origin 即其真实来源仓库。
+   * 进入内核管理页时若未手动配置过仓库地址，自动读取并回填，
+   * 免去用户手填；用户手动切换过仓库后以用户配置为准。
+   */
+  useEffect(() => {
+    if (page !== 'kernel' || !comfyRoot || !isBackend()) return
+    if (settings.repoUrl) return
+    let cancelled = false
+    call('kernel_get_remote', [comfyRoot], '', null)
+      .then((d) => {
+        const url = d?.url || ''
+        if (!cancelled && url) {
+          set('repoUrl', url)
+          push({ level: 'info', text: `>>> 已从本地仓库自动识别远程地址：${url}` })
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, comfyRoot, settings.repoUrl])
   /* 插件列表：由后端真实读取 custom_nodes 目录 */
   const [plugins, setPlugins] = useState([])
 

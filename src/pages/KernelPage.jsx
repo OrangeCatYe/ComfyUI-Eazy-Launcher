@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { GitBranch, RefreshCw, Check } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Toolbar, SectionCard, EmptyState } from '../components/ui/Blocks'
@@ -212,12 +212,16 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, com
 /* 切换仓库弹窗 */
 function RepoModal({ open, current, onClose, onConfirm }) {
   const [url, setUrl] = useState('')
+  /* 打开时预填当前地址（含自动识别的 origin），用户可改可不动 */
+  useEffect(() => {
+    if (open) setUrl(current || '')
+  }, [open, current])
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="切换远程仓库"
-      description="输入 ComfyUI 内核的 Git 仓库地址。"
+      description="已自动填入当前仓库地址（来自本地仓库 origin），可修改后切换。"
       size="md"
       footer={
         <>
@@ -240,7 +244,7 @@ function RepoModal({ open, current, onClose, onConfirm }) {
         <TextInput
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder={current || 'https://github.com/Comfy-Org/ComfyUI.git'}
+          placeholder="https://github.com/Comfy-Org/ComfyUI.git"
         />
       </div>
     </Modal>
