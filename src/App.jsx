@@ -75,7 +75,7 @@ const PAGE_META = {
 }
 
 /* 工具卡图标解析：把配置里的图标名映射为 lucide 组件 */
-import { call } from './lib/backend'
+import { call, isBackend } from './lib/backend'
 
 const TOOLS_WITH_ICONS = TOOLS.map((t) => ({ ...t, icon: ICONS[t.icon] || ICONS.Boxes }))
 
@@ -804,25 +804,106 @@ function AppShell() {
   }
 
   /* 启动 / 停止内核
-   * 无后端阶段：不编造 PID 与假日志，只记录真实发生的状态变化，
-   * 并明确告知用户数据需后端接入后才会真实产生。 */
-  function handleLaunch() {
+   * 真实流程：有后端时调用 launch_start 拉起 ComfyUI 进程并轮询状态，
+   * 输出真实 PID 与内核日志；无后端（纯浏览器预览）时保持原提示文案。 */
+  const launchTaskRef = useRef(null)
+  const pollTimerRef = useRef(null)
+
+  /* 卸载时清理轮询定时器，避免组件销毁后仍触发日志推送 */
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
+  }, [])
+
+  async function handleLaunch() {
     if (running) {
+      /* 停止：优先走后端真实终止进程 */
+      if (launchTaskRef.current) {
+        try {
+          await call('launch_stop', [launchTaskRef.current], '停止内核需要后端支持', push)
+        } catch (e) {
+          push({ level: 'error', text: `>>> 停止失败：${e?.message || e}` })
+        }
+      }
       setRunning(false)
       setPid(null)
+      launchTaskRef.current = null
       push({ level: 'warning', text: '>>> 内核已停止运行' })
       return
     }
-    setRunning(true)
+
+    if (!comfyRoot) {
+      setTerminalOpen(true)
+      push({ level: 'warning', text: '>>> 尚未配置 ComfyUI 根目录，请先在「设置 → 基础运行环境」中导入。' })
+      return
+    }
+
     setTerminalOpen(true)
     push({ level: 'cmd', text: `>>> 正在启动 ComfyUI 内核...` })
-    push({ level: 'info', text: `[INFO] 工作目录: ${comfyRoot || '未配置'}` })
+    push({ level: 'info', text: `[INFO] 工作目录: ${comfyRoot}` })
     push({ level: 'info', text: `[INFO] 解释器: ${pythonPath || '未配置'}` })
-    push({
-      level: 'warning',
-      text: '[INFO] 当前为纯前端预览，未连接后端进程，因此不会真实拉起 ComfyUI，也不会产生 PID。',
-    })
-    push({ level: 'info', text: '[INFO] 接入后端后，此处将输出真实的启动日志与进程号。' })
+
+    if (!isBackend()) {
+      push({
+        level: 'warning',
+        text: '[INFO] 当前为纯前端预览，未连接后端进程，因此不会真实拉起 ComfyUI，也不会产生 PID。',
+      })
+      push({ level: 'info', text: '[INFO] 接入后端后，此处将输出真实的启动日志与进程号。' })
+      return
+    }
+
+    try {
+      /* 若上一次启动的进程还活着，避免重复拉起 */
+      const st0 = await call('launch_status', [], '查询内核状态需要后端支持', push)
+      if (st0?.running) {
+        launchTaskRef.current = st0.id
+        setRunning(true)
+        setPid(st0.pid)
+        push({ level: 'success', text: `>>> 内核已在运行中（PID=${st0.pid}），无需重复启动。` })
+        return
+      }
+
+      const data = await call(
+        'launch_start',
+        [comfyRoot, pythonPath || null, 8188, []],
+        '启动 ComfyUI 需要后端支持',
+        push
+      )
+      launchTaskRef.current = data.id
+      setRunning(true)
+      setPid(data.pid)
+      push({ level: 'success', text: `>>> 内核已启动：PID=${data.pid}，端口=${data.port}，地址=${data.url}` })
+
+      /* 轮询内核日志：后端每次返回最新 200 行，与上次差量输出 */
+      let lastCount = 0
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const st = await call('launch_status', [launchTaskRef.current], '', push)
+          if (!st) return
+          const lines = Array.isArray(st.log) ? st.log : []
+          if (lines.length > lastCount) {
+            lines.slice(lastCount).forEach((l) => push({ level: 'info', text: l }))
+            lastCount = lines.length
+          }
+          if (!st.running) {
+            clearInterval(pollTimerRef.current)
+            setRunning(false)
+            setPid(null)
+            launchTaskRef.current = null
+            push({ level: 'warning', text: `>>> 内核进程已退出（exitCode=${st.exitCode}）` })
+          }
+        } catch {
+          /* 单次轮询失败不打断，下个周期重试 */
+        }
+      }, 1500)
+    } catch (e) {
+      setRunning(false)
+      setPid(null)
+      launchTaskRef.current = null
+      push({ level: 'error', text: `>>> 启动失败：${e?.message || e}` })
+    }
   }
 
   /* AI 日志分析：扫描当前日志给出摘要（本地模拟） */
@@ -867,10 +948,10 @@ function AppShell() {
 
   /*
    * 初恋部署
-   * 无后端阶段：不推进假进度、不虚构硬件版本。
-   * 用户点击后明确告知需要后端，并输出真实的前置校验结果。
+   * 有后端：校验部署目录真实存在 + 内核入口文件存在，输出真实校验结果。
+   * 无后端：保留纯前端预览提示。
    */
-  function handleDeploy() {
+  async function handleDeploy() {
     setTerminalOpen(true)
     push({ level: 'cmd', text: '\n>>> 正在校验部署前置条件...' })
 
@@ -880,11 +961,39 @@ function AppShell() {
     }
     push({ level: 'info', text: ` - 部署目录：${deployDir}` })
     push({ level: 'info', text: ' - 目录已选择：通过' })
-    push({
-      level: 'warning',
-      text: '>>> 当前为纯前端预览，未连接后端，无法执行真实的下载与安装流程，因此不会推进部署进度。',
-    })
-    push({ level: 'info', text: '>>> 接入后端后，此处将按真实阶段输出部署日志与进度。' })
+
+    if (!isBackend()) {
+      push({
+        level: 'warning',
+        text: '>>> 当前为纯前端预览，未连接后端，无法执行真实的下载与安装流程，因此不会推进部署进度。',
+      })
+      push({ level: 'info', text: '>>> 接入后端后，此处将按真实阶段输出部署日志与进度。' })
+      return
+    }
+
+    try {
+      const rootOk = await call('env_exists', [deployDir], '', push)
+      if (!rootOk) {
+        push({ level: 'error', text: `>>> 部署目录不存在：${deployDir}` })
+        return
+      }
+      push({ level: 'info', text: ' - 部署目录存在：通过' })
+      if (comfyRoot) {
+        const entryOk = await call('env_exists', [`${comfyRoot}/main.py`], '', push)
+        push({
+          level: entryOk ? 'info' : 'warning',
+          text: entryOk
+            ? ' - 内核入口 main.py 存在：通过'
+            : ` - 未在内核目录找到 main.py：${comfyRoot}`,
+        })
+      }
+      push({
+        level: 'warning',
+        text: '>>> 前置校验通过，但完整部署流程（下载内核/依赖/模型）尚未接入，请在「部署」页跟进进度。',
+      })
+    } catch (e) {
+      push({ level: 'error', text: `>>> 部署校验失败：${e?.message || e}` })
+    }
   }
 
   /* 生成日志：把当前日志导出为 .log 文件 */
