@@ -223,7 +223,12 @@ export function TerminalDrawer({
   return (
     <div
       className={cx(
-        'shrink-0 border-t border-[var(--border-main)] bg-[var(--bg-card)] overflow-hidden ease-out',
+        /*
+         * 根元素必须是 flex 容器：内层 flex-1 min-h-0 依赖它获得高度约束。
+         * 缺少它时日志区会无界增长，被根元素的 overflow-hidden 直接裁切
+         * —— 表现为没有滚动条、无法滚动、也无法贴底。
+         */
+        'shrink-0 flex flex-col border-t border-[var(--border-main)] bg-[var(--bg-card)] overflow-hidden ease-out',
         /*
          * 拖拽时必须关掉过渡动画，否则高度变化会「追赶」指针，
          * 手感明显发飘；松手后恢复 300ms 过渡用于展开/收起。
