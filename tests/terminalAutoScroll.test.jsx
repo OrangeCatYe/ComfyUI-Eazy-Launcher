@@ -1,11 +1,11 @@
-// 回归验证：日志流自动滚动策略
+// 回归验证：日志流自动滚动策略（v2 —— 用户输入事件驱动）
 //
 // 用户需求：
 //   1. 默认自动滚动到底部
-//   2. 用户主动上滑 → 停止自动滚动
+//   2. 用户主动上滑（滚轮上滚/触屏上滑/PageUp）→ 停止自动滚动
 //   3. 暂停时在「AI日志分析」左侧显示「开启日志自动滚动」按钮
 //   4. 点击按钮或滑回日志最底部 → 恢复自动滚动
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
@@ -37,7 +37,7 @@ function bodyOf(container) {
   return container.querySelector('.overflow-y-auto')
 }
 
-/** 模拟可滚动的布局：setter 会触发 scroll 事件（与真实浏览器一致） */
+/** 模拟可滚动布局（jsdom 无布局引擎） */
 function mockScrollable(el, { scrollHeight, clientHeight }) {
   let top = 0
   Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true })
@@ -47,8 +47,6 @@ function mockScrollable(el, { scrollHeight, clientHeight }) {
     get: () => top,
     set: (v) => {
       top = Math.max(0, Math.min(scrollHeight - clientHeight, v))
-      /* 真实浏览器中给 scrollTop 赋值会异步触发 scroll 事件 */
-      el.dispatchEvent(new Event('scroll', { bubbles: true }))
     },
   })
 }
@@ -65,11 +63,9 @@ describe('日志自动滚动策略', () => {
 
   beforeEach(() => {
     localStorage.clear()
-    vi.useFakeTimers()
   })
 
   afterEach(() => {
-    vi.useRealTimers()
     if (m) {
       m.cleanup()
       m = null
@@ -81,72 +77,83 @@ describe('日志自动滚动策略', () => {
     expect(autoBtnOf(m.div)).toBeUndefined()
   })
 
-  it('用户向上滚动后暂停自动滚动，头部浮出开启按钮', () => {
+  it('滚轮上滚（wheel deltaY<0）暂停自动滚动，按钮出现', () => {
     m = mountDrawer()
     const body = bodyOf(m.div)
     mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
-    // 程序贴底（基准 scrollTop=300）
     act(() => {
-      body.scrollTop = 300
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }))
     })
-    // 等程序贴底的 programmatic 标记过期
-    act(() => {
-      vi.advanceTimersByTime(100)
-    })
-    // 用户上滑到 100（setter 会触发 scroll 事件）
-    act(() => {
-      body.scrollTop = 100
-    })
-    expect(autoBtnOf(m.div), '暂停后应显示开启按钮').toBeTruthy()
+    expect(autoBtnOf(m.div), '上滚后应显示开启按钮').toBeTruthy()
   })
 
-  it('点击「开启日志自动滚动」按钮后恢复自动滚动，按钮消失', () => {
+  it('滚轮下滚不暂停自动滚动', () => {
     m = mountDrawer()
     const body = bodyOf(m.div)
     mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
     act(() => {
-      body.scrollTop = 300
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }))
     })
-    act(() => {
-      vi.advanceTimersByTime(100)
-    })
-    act(() => {
-      body.scrollTop = 100
-    })
-    const btn = autoBtnOf(m.div)
-    expect(btn).toBeTruthy()
-    act(() => btn.click())
-    expect(autoBtnOf(m.div), '恢复后按钮应消失').toBeUndefined()
+    expect(autoBtnOf(m.div), '下滚不应暂停').toBeUndefined()
   })
 
-  it('用户滑回最底部时自动恢复自动滚动', () => {
+  it('PageUp / ArrowUp 暂停，End 恢复', () => {
     m = mountDrawer()
     const body = bodyOf(m.div)
     mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
     act(() => {
-      body.scrollTop = 300
+      body.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
     })
+    expect(autoBtnOf(m.div), 'PageUp 应暂停').toBeTruthy()
     act(() => {
-      vi.advanceTimersByTime(100)
+      body.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     })
+    expect(autoBtnOf(m.div), 'End 应恢复').toBeUndefined()
+  })
+
+  it('暂停后用户滑回最底部（距底 <24px）自动恢复', () => {
+    m = mountDrawer()
+    const body = bodyOf(m.div)
+    mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
     act(() => {
-      body.scrollTop = 100
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }))
     })
     expect(autoBtnOf(m.div)).toBeTruthy()
-    // 滑回底部：距底 0 < 24
+    // 用户手动滚回底部
     act(() => {
       body.scrollTop = 300
+      body.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
     expect(autoBtnOf(m.div), '滑回底部应自动恢复').toBeUndefined()
   })
 
-  it('新日志到达时自动贴底（自动滚动开启时）', () => {
+  it('点击「开启日志自动滚动」按钮后恢复并贴底', () => {
     m = mountDrawer()
     const body = bodyOf(m.div)
     mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
     act(() => {
-      m.render([{ level: 'info', text: 'a' }, { level: 'info', text: 'b' }])
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }))
     })
-    expect(body.scrollTop, '新日志应贴底').toBe(300)
+    const btn = autoBtnOf(m.div)
+    expect(btn).toBeTruthy()
+    act(() => btn.click())
+    expect(autoBtnOf(m.div), '点击后按钮应消失').toBeUndefined()
+    expect(body.scrollTop, '恢复后应贴底').toBe(300)
+  })
+
+  it('自动滚动开启时新日志到达贴底；暂停时新日志不改变位置', () => {
+    m = mountDrawer()
+    const body = bodyOf(m.div)
+    mockScrollable(body, { scrollHeight: 500, clientHeight: 200 })
+    act(() => m.render([{ level: 'info', text: 'a' }]))
+    expect(body.scrollTop, '开启时贴底').toBe(300)
+    act(() => {
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }))
+    })
+    act(() => {
+      body.scrollTop = 80
+    })
+    act(() => m.render([{ level: 'info', text: 'a' }, { level: 'info', text: 'b' }]))
+    expect(body.scrollTop, '暂停时新日志不应改变位置').toBe(80)
   })
 })

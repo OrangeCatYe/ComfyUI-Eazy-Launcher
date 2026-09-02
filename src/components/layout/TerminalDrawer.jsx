@@ -58,14 +58,12 @@ export function TerminalDrawer({
   const bodyRef = useRef(null)
   /* 是否跟随底部自动滚动 */
   const [autoScroll, setAutoScroll] = useState(true)
-  /* 程序自身滚动时置位，避免误判为用户上滑 */
-  const programmatic = useRef(false)
-  /* 上次 scrollTop：判定用户是否在「向上滚动」 */
-  const lastScrollTopRef = useRef(0)
   /* 拖拽中（用于控制过渡动画与全局光标） */
   const [dragging, setDragging] = useState(false)
   /* 拖拽参数：起始 Y 与起始高度 */
   const dragRef = useRef(null)
+  /* 触摸起点：用于触摸滚动方向判定 */
+  const touchStartY = useRef(null)
 
   /*
    * 拖拽改变终端高度
@@ -129,60 +127,96 @@ export function TerminalDrawer({
     [height, onResize]
   )
 
+  /*
+   * 用户滚动意图判定 —— 不依赖 scroll 事件
+   *
+   * 之前用 scroll 事件判定方向有两个致命竞态：
+   *   1. 程序贴底产生的 scroll 事件与用户滚动事件交错，屏蔽窗
+   *      （programmatic 标记 + 定时器复位）会吃掉真实的用户滚动；
+   *   2. scroll 事件触发时 scrollTop 已被贴底覆盖，读不到用户的
+   *      真实位置，方向判定失真。
+   *
+   * 现在直接监听用户输入：
+   *   - wheel：deltaY < 0 就是用户在向上滚（鼠标滚轮上滚），立即暂停
+   *   - touchstart/touchmove：触屏上滑（clientY 增大）暂停
+   *   - keydown：PageUp / ArrowUp 暂停，PageDown / End 滑到底恢复
+   *   - 恢复条件：用户滚动到距底 24px 内，或点击「开启日志自动滚动」
+   */
+  const pauseAutoScroll = useCallback(() => {
+    setAutoScroll(false)
+  }, [])
+
+  const handleWheel = useCallback(
+    (e) => {
+      if (e.deltaY < 0) pauseAutoScroll()
+    },
+    [pauseAutoScroll]
+  )
+
+  const handleTouchStart = useCallback((e) => {
+    touchStartY.current = e.touches?.[0]?.clientY ?? null
+  }, [])
+
+  const handleTouchMove = useCallback(
+    (e) => {
+      if (touchStartY.current == null) return
+      const y = e.touches?.[0]?.clientY
+      if (y == null) return
+      /* 手指向下移动（clientY 增大）= 内容向上滚 = 查看旧日志 */
+      if (y > touchStartY.current + 2) pauseAutoScroll()
+    },
+    [pauseAutoScroll]
+  )
+
+  const handleTouchEnd = useCallback(() => {
+    touchStartY.current = null
+  }, [])
+
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === 'PageUp' || e.key === 'ArrowUp') pauseAutoScroll()
+      if (e.key === 'PageDown' || e.key === 'End') scrollToBottomRef.current?.()
+    },
+    [pauseAutoScroll]
+  )
+
+  /* 键盘恢复用 ref 转发，避免 scrollToBottom 的声明顺序问题 */
+  const scrollToBottomRef = useRef(null)
+
   /* 新日志到达时，仅在自动滚动模式下贴底 */
   useEffect(() => {
     if (!open || !autoScroll || !bodyRef.current) return
-    programmatic.current = true
     bodyRef.current.scrollTop = bodyRef.current.scrollHeight
-    lastScrollTopRef.current = bodyRef.current.scrollTop
-    /* 滚动事件在下一帧触发，用定时器复位标记 */
-    const t = setTimeout(() => {
-      programmatic.current = false
-    }, 60)
-    return () => clearTimeout(t)
   }, [logs, open, autoScroll])
 
+  /* 用户滚动位置判定：滑回底部即恢复自动滚动 */
   const handleScroll = useCallback(() => {
-    if (!bodyRef.current) return
+    if (autoScroll || !bodyRef.current) return
     const el = bodyRef.current
-    /* 始终更新基准（含程序触发的滚动事件），保证「向上滚动」判定准确 */
-    const prev = lastScrollTopRef.current
-    lastScrollTopRef.current = el.scrollTop
-    /* 程序自身触发的滚动不参与状态判定 */
-    if (programmatic.current) return
     /* 距底 24px 内视为「已回到底部」→ 恢复自动滚动 */
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 24) {
       setAutoScroll(true)
-      return
     }
-    /* 只有用户「向上滚动」（scrollTop 变小）才暂停自动滚动 */
-    if (el.scrollTop < prev - 2) {
-      setAutoScroll(false)
-    }
-  }, [])
+  }, [autoScroll])
 
-  /* 滚回底部并恢复自动滚动（头部按钮与底部悬浮按钮共用） */
+  /* 滚回底部并恢复自动滚动（头部按钮、底部悬浮按钮与键盘 End 共用） */
   const scrollToBottom = useCallback(() => {
     const el = bodyRef.current
+    setAutoScroll(true)
     if (!el) return
-    programmatic.current = true
     try {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     } catch {
       el.scrollTop = el.scrollHeight
     }
-    setAutoScroll(true)
-    lastScrollTopRef.current = el.scrollHeight
-    setTimeout(() => {
-      programmatic.current = false
-    }, 400)
   }, [])
+  scrollToBottomRef.current = scrollToBottom
 
   /* 面板切换为打开时重置为贴底 */
   useEffect(() => {
     if (open) {
       setAutoScroll(true)
-      lastScrollTopRef.current = bodyRef.current?.scrollTop || 0
+      if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
     }
   }, [open])
 
@@ -295,7 +329,13 @@ export function TerminalDrawer({
           <div
             ref={bodyRef}
             onScroll={handleScroll}
-            className="h-full overflow-y-auto p-4 font-mono text-[11px] leading-relaxed"
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onKeyDown={handleKeyDown}
+            tabIndex={0}
+            className="h-full overflow-y-auto p-4 font-mono text-[11px] leading-relaxed focus:outline-none"
             style={{ background: 'var(--bg-main)' }}
           >
             {logs.length === 0 ? (
