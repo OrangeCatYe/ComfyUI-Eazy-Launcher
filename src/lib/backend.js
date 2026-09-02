@@ -70,9 +70,27 @@ export async function call(fn, args = [], fallback = '该操作需要后端支�
 
   let res
   try {
-    res = await target(...args)
+    /*
+     * Eel 的调用约定是「双重调用」：
+     *   eel.fn(args)     —— 只发送 WebSocket 消息，返回 _call_return() 里的 function
+     *   eel.fn(args)()   —— 再调用一次，才注册回调并返回 Promise
+     *
+     * 少写第二层括号时，await 拿到的是函数对象（函数不是 thenable），
+     * 于是立即返回该函数；后端其实已经执行完毕（对话框也弹了、目录也扫了），
+     * 但返回值被丢弃，前端拿到 undefined 的 data，判定为「用户取消」，
+     * 表现为「点击后毫无反应」且不报错。
+     *
+     * 这里兼容两种形态：Eel 返回 function，测试 mock 直接返回 Promise。
+     */
+    const ret = target(...args)
+    res = typeof ret === 'function' ? await ret() : await ret
   } catch (e) {
     throw new Error(`后端调用失败：${e?.message || e}`)
+  }
+
+  /* 兜底防御：若仍是函数，说明调用约定不符，明确报错而不是静默失败 */
+  if (typeof res === 'function') {
+    throw new Error(`后端 ${fn} 调用约定异常：未返回 Promise`)
   }
 
   emitLogs(res, push)

@@ -13,9 +13,14 @@ import { isBackend, call, tryCall, waitBackend } from '../../lib/backend'
 async function scanViaBackend() {
   const picked = await tryCall('dialog_pick_dir', ['选择 ComfyUI 根目录'])
   if (!picked || !picked.path) return null
+  /*
+   * call() 的契约：失败抛错（含「未识别到内核特征」），成功返回 data。
+   * 走到这里说明后端信封 ok=true、识别成功；ok 字段在信封层、不在 data 里，
+   * 不能再检查 scan?.ok（恒为 undefined，会把成功误判成「未识别」）。
+   */
   const scan = await call('env_scan_root', [picked.path], '扫描目录需要后端支持')
   return {
-    ok: Boolean(scan?.ok),
+    ok: true,
     mode: 'backend',
     rootName: scan?.rootName || picked.path,
     comfyRoot: scan?.comfyRoot || picked.path,
@@ -27,7 +32,7 @@ async function scanViaBackend() {
     plugins: scan?.plugins || [],
     modelsDirs: scan?.modelsDirs || [],
     requirements: scan?.requirements ?? null,
-    reason: scan?.ok ? '' : '未识别到 ComfyUI 内核特征',
+    reason: '',
   }
 }
 
@@ -106,9 +111,10 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
         setResult({ ...emptyScan(), comfyRoot: p, ok: false, reason: '非后端模式下未校验' })
         return
       }
+      /* call() 成功返回即校验通过；ok 在信封层，data 里没有，不可再读 scan?.ok */
       const scan = await call('env_scan_root', [p], '校验路径需要后端支持')
       const r = {
-        ok: Boolean(scan?.ok),
+        ok: true,
         mode: 'backend',
         rootName: scan?.rootName || p,
         comfyRoot: scan?.comfyRoot || p,
@@ -120,14 +126,12 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
         plugins: scan?.plugins || [],
         modelsDirs: scan?.modelsDirs || [],
         requirements: scan?.requirements ?? null,
-        reason: scan?.ok ? '' : '未识别到 ComfyUI 内核特征',
+        reason: '',
       }
       summarizeScan(r).forEach((line) => onLog?.({ level: 'info', text: ` - ${line}` }))
       if (r.ok) {
         onLog?.({ level: 'success', text: '>>> 路径校验通过，请确认后导入。' })
         setForm({ comfyRoot: r.comfyRoot, pythonPath: r.pythonPath || form.pythonPath })
-      } else {
-        onLog?.({ level: 'warning', text: `>>> ${r.reason}（仍可直接导入）` })
       }
       setResult(r)
     } catch (e) {
