@@ -89,6 +89,27 @@ function AppShell() {
   const [deployStatus, setDeployStatus] = useState('待命')
   const [deployDir, setDeployDir] = useState('')
 
+  /*
+   * 终端面板高度 —— 随窗口高度自适应
+   *
+   * 修复前：TerminalDrawer 用固定 height=300 且 shrink-0。
+   * 窗口变矮时终端不让步，把上方内容区挤到看不见，且内容区无法滚动。
+   *
+   * 策略：取窗口高度的 30%，夹在 [160, 300] 之间；
+   * 极矮窗口（<600px）进一步压到 25%，保证内容区至少还有可视高度。
+   */
+  const [terminalHeight, setTerminalHeight] = useState(300)
+  useEffect(() => {
+    const compute = () => {
+      const h = window.innerHeight
+      const ratio = h < 600 ? 0.25 : 0.3
+      setTerminalHeight(Math.round(Math.min(300, Math.max(160, h * ratio))))
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    return () => window.removeEventListener('resize', compute)
+  }, [])
+
   /* 恢复快照依赖：差异表弹窗（terminal.md 4.1） */
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [restoreDiff, setRestoreDiff] = useState(null)
@@ -836,35 +857,43 @@ function AppShell() {
     <div className="h-full flex overflow-hidden bg-[var(--bg-main)]">
       <Sidebar current={page} onNavigate={navigate} />
 
-          <div className="flex-1 flex flex-col min-w-0">
-            <TopBar
-              title={meta.title}
-              subtitle={meta.subtitle}
-              terminalOpen={terminalOpen}
-              onToggleTerminal={() => setTerminalOpen((v) => !v)}
-              onAction={handleTopBarAction}
-            />
+      <div className="flex-1 flex flex-col min-w-0">
+        <TopBar
+          title={meta.title}
+          subtitle={meta.subtitle}
+          terminalOpen={terminalOpen}
+          onToggleTerminal={() => setTerminalOpen((v) => !v)}
+          onAction={handleTopBarAction}
+        />
 
-            {page.startsWith('tool:') ? (
-              <div className="p-6">{renderPage()}</div>
-            ) : (
-              renderPage()
-            )}
+        {/*
+         * 内容区 —— 唯一可滚动区域
+         *
+         * 修复前：此处是裸的 renderPage()，外层容器为 overflow-hidden，
+         * 窗口一旦变矮，超出部分被直接裁掉且无法滚动 —— 即「显示不全」。
+         *
+         * min-h-0 是 flex 子项能正确收缩滚动的前提（否则 flex 子项默认
+         * min-height:auto，会被内容撑高，滚动条永不出现）。
+         */}
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          {page.startsWith('tool:') ? <div className="p-6">{renderPage()}</div> : renderPage()}
+        </main>
 
-            <TerminalDrawer
-              open={terminalOpen}
-              onClose={() => setTerminalOpen(false)}
-              logs={logs}
-              onClear={clear}
-              running={running}
-              pid={pid}
-              onLaunch={handleLaunch}
-              onStop={handleLaunch}
-              onOpenBrowser={() => push({ level: 'info', text: '>>> 打开浏览器 http://127.0.0.1:8188' })}
-              onAiAnalyze={handleAiAnalyze}
-              onExportLog={handleExportLog}
-            />
-          </div>
+        <TerminalDrawer
+          open={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          logs={logs}
+          onClear={clear}
+          running={running}
+          pid={pid}
+          onLaunch={handleLaunch}
+          onStop={handleLaunch}
+          onOpenBrowser={() => push({ level: 'info', text: '>>> 打开浏览器 http://127.0.0.1:8188' })}
+          onAiAnalyze={handleAiAnalyze}
+          onExportLog={handleExportLog}
+          height={terminalHeight}
+        />
+      </div>
 
           {/* 恢复快照依赖 —— 差异表弹窗（唯一有页面内 UI 的终端功能） */}
           <SnapshotDiffModal

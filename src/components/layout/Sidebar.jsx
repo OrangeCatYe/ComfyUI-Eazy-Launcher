@@ -66,22 +66,27 @@ export function Sidebar({ current, onNavigate }) {
   ]
 
   return (
-    <aside className="w-[220px] shrink-0 h-full flex flex-col bg-[var(--bg-sidebar)] border-r border-[var(--border-main)] backdrop-blur-xl">
-      <div className="px-5 py-5 border-b border-[var(--border-main)]">
+    /*
+     * 宽度自适应：窗口 < 1024px 时收成 64px 图标条，否则 220px。
+     * 修复前固定 w-[220px]，窗口变窄时侧栏不让步，挤压内容区。
+     * 用 lg(1024px) 而非 xl(1280px)：1024x768 这类常见小屏下
+     * 仍保留完整文字标签，只在真正变窄时才收起。
+     */
+    <aside className="w-16 lg:w-[220px] shrink-0 h-full flex flex-col bg-[var(--bg-sidebar)] border-r border-[var(--border-main)] backdrop-blur-xl">
+      <div className="px-2 lg:px-5 py-5 border-b border-[var(--border-main)]">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
             <span className="text-white font-black text-xs">KK</span>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 hidden lg:block">
             <div className="text-xs font-black text-[var(--text-main)] truncate">ComfyUI_KK</div>
             <div className="text-[10px] font-bold text-[var(--text-sub)] truncate">专业启动器</div>
           </div>
         </div>
-        <div className="mt-3 inline-block px-2 py-0.5 rounded-md bg-[var(--bg-hover)] text-[10px] font-black text-[var(--text-sub)] tnum">
+        <div className="mt-3 hidden lg:inline-block px-2 py-0.5 rounded-md bg-[var(--bg-hover)] text-[10px] font-black text-[var(--text-sub)] tnum">
           v2.0.7
         </div>
       </div>
-
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
         {items.map((it) => {
           const active = current === it.id || (it.id === 'tools' && current.startsWith('tool:'))
@@ -91,19 +96,22 @@ export function Sidebar({ current, onNavigate }) {
               onClick={() => onNavigate(it.id)}
               className={cx(
                 'press w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all duration-200',
+                /* 窄屏收成图标条：图标居中，文字隐藏 */
+                'justify-center lg:justify-start',
                 active
                   ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/20'
                   : 'text-[var(--text-sub)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'
               )}
+              title={it.label}
             >
-              <it.icon size={15} />
-              <span className="truncate">{it.label}</span>
+              <it.icon size={15} className="shrink-0" />
+              <span className="truncate hidden lg:inline">{it.label}</span>
             </button>
           )
         })}
       </nav>
 
-      <div className="p-3 border-t border-[var(--border-main)]">
+      <div className="p-3 border-t border-[var(--border-main)] hidden lg:block">
         <div className="px-3.5 py-2 rounded-xl bg-[var(--bg-hover)]">
           <div className="text-[10px] font-black text-[var(--text-sub)]">本地数据模式</div>
           <div className="mt-0.5 text-[10px] text-[var(--text-sub)] opacity-70">
