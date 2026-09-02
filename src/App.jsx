@@ -224,6 +224,8 @@ function AppShell() {
 
   /* 内核版本列表：由后端 git fetch --tags 真实拉取 */
   const [kernelVersions, setKernelVersions] = useState([])
+  /* 开发版（主分支提交）列表：与稳定版（标签）分开保存 */
+  const [kernelCommits, setKernelCommits] = useState([])
 
   /*
    * 内核仓库地址自动发现：
@@ -403,7 +405,8 @@ function AppShell() {
           [settings.comfyRoot],
           (data) => {
             setKernelVersions(data.versions || [])
-            push({ level: 'success', text: `>>> 已拉取 ${(data.versions || []).length} 个版本标签` })
+            setKernelCommits(data.commits || [])
+            push({ level: 'success', text: `>>> 已拉取 ${(data.versions || []).length} 个版本标签、${(data.commits || []).length} 条开发版提交` })
           },
           '刷新版本列表'
         )
@@ -576,6 +579,7 @@ function AppShell() {
         return (
           <KernelPage
             versions={kernelVersions}
+            commits={kernelCommits}
             currentVersion={settings.kernelVersion || env?.kernelVersion || ''}
             repoUrl={settings.repoUrl || ''}
             comfyRoot={comfyRoot}

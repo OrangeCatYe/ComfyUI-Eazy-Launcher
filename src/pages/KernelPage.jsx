@@ -25,7 +25,7 @@ const TABS = [
   { id: 'commits', label: '开发版 (Commits)' },
 ]
 
-export default function KernelPage({ versions = [], currentVersion, repoUrl, comfyRoot, autoInstall, onToggleAutoInstall, onAction }) {
+export default function KernelPage({ versions = [], commits = [], currentVersion, repoUrl, comfyRoot, autoInstall, onToggleAutoInstall, onAction }) {
   const [tab, setTab] = useState('releases')
   /* 切换仓库弹窗 / 切换版本二次确认 / 刷新中状态 */
   const [repoOpen, setRepoOpen] = useState(false)
@@ -110,10 +110,11 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, com
         </div>
 
         <div className="px-5 pb-5">
-          {versions.length === 0 ? (
+          {/* 稳定版=Releases 标签，开发版=主分支提交；两份数据独立保存 */}
+          {(tab === 'releases' ? versions : commits).length === 0 ? (
             <EmptyState
               icon={GitBranch}
-              title="暂无版本数据"
+              title={tab === 'releases' ? '暂无版本数据' : '暂无开发版数据'}
               desc="点击「刷新列表」从远程仓库拉取可用版本。"
             />
           ) : (
@@ -132,7 +133,7 @@ export default function KernelPage({ versions = [], currentVersion, repoUrl, com
                   </tr>
                 </thead>
                 <tbody>
-                  {versions.map((v) => {
+                  {(tab === 'releases' ? versions : commits).map((v) => {
                     const isCurrent = v.version === currentVersion
                     return (
                       <tr

@@ -39,10 +39,11 @@ def list_versions(repo):
     """
     拉取远端标签后返回版本列表（新 → 旧）。
 
-    每项为 { version, name, date }：
-      - version：标签名（如 v0.3.10）
-      - name：标签说明（annotated tag 的 message 首行，普通标签为空）
-      - date：标签指向提交的日期（YYYY-MM-DD）
+    返回 data.versions 为稳定版（Releases 标签），data.commits 为
+    开发版（默认主分支最近提交），均为 { version, name, date }：
+      - version：标签名 / 提交短哈希
+      - name：标签说明 / 提交标题
+      - date：YYYY-MM-DD
     """
     if not available():
         return {"ok": False, "error": "未检测到 git，请先安装 Git 并加入 PATH", "log": []}
@@ -74,7 +75,41 @@ def list_versions(repo):
             "date": (parts[2].strip() if len(parts) > 2 else ""),
         })
     log.append("共读取到 {} 个版本标签".format(len(versions)))
-    return {"ok": True, "data": {"versions": versions}, "log": log}
+
+    # 开发版：默认主分支（master / main 兜底）最近 50 条提交
+    commits = []
+    branch = None
+    for cand in ("origin/master", "origin/main"):
+        br = _git(repo, "rev-parse", "--verify", "--quiet", cand)
+        if br["ok"]:
+            branch = cand
+            break
+    if branch:
+        cl = _git(
+            repo,
+            "log",
+            "--date=short",
+            "--pretty=format:%h%x09%s%x09%cd",
+            "-50",
+            branch,
+        )
+        if cl["ok"]:
+            for line in cl["out"].splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split("\t", 2)
+                commits.append({
+                    "version": parts[0].strip(),
+                    "name": (parts[1].strip() if len(parts) > 1 else ""),
+                    "date": (parts[2].strip() if len(parts) > 2 else ""),
+                })
+            log.append("共读取到 {} 条 {} 分支提交".format(len(commits), branch))
+        else:
+            log.append("读取提交列表失败：{}".format(cl["err"] or ""))
+    else:
+        log.append("未找到 origin/master 或 origin/main 分支，开发版列表为空")
+
+    return {"ok": True, "data": {"versions": versions, "commits": commits}, "log": log}
 
 
 def current_version(repo):
