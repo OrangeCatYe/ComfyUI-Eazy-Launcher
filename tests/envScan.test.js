@@ -17,7 +17,7 @@ describe('emptyScan 空结果结构', () => {
   it('所有字段代表「未识别」的初始态', () => {
     const s = emptyScan()
     expect(s.ok).toBe(false)
-    expect(s.mode).toBe(null)
+    expect(s.mode).toBe('backend')
     expect(s.comfyRoot).toBe('')
     expect(s.pluginCount).toBe(0)
     expect(s.plugins).toEqual([])

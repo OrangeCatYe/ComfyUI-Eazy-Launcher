@@ -2,16 +2,18 @@ import { useCallback, useState } from 'react'
 import { FolderPlus, FolderOpen, CheckCircle2, AlertTriangle, Terminal, Loader2 } from 'lucide-react'
 import { Modal } from './Modal'
 import { Button } from './Button'
-import { scanEnvironmentFromPicker, summarizeScan, emptyScan } from '../../lib/envScan'
-import { isBackend, call, tryCall, waitBackend } from '../../lib/backend'
+import { summarizeScan, emptyScan } from '../../lib/envScan'
+import { isBackend, call } from '../../lib/backend'
 
 /*
  * 后端模式扫描：
- * Eel 的 app 窗口不支持 File System Access API（showDirectoryPicker 永不返回），
- * 因此后端可用时必须走「原生目录框 → 后端真实扫描」这条链路。
+ * 目录选择与扫描全部由后端完成，无后端时直接抛错（不再降级浏览器 API）。
  */
 async function scanViaBackend() {
-  const picked = await tryCall('dialog_pick_dir', ['选择 ComfyUI 根目录'])
+  if (!isBackend()) {
+    throw new Error('未连接后端：请通过 ComfyUI_KK 启动器打开本程序')
+  }
+  const picked = await call('dialog_pick_dir', ['选择 ComfyUI 根目录'], '选择目录需要后端支持')
   if (!picked || !picked.path) return null
   /*
    * call() 的契约：失败抛错（含「未识别到内核特征」），成功返回 data。
@@ -69,9 +71,10 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
     setScanning(true)
     onLog?.({ level: 'cmd', text: '\n>>> 正在等待选择 ComfyUI 根目录...' })
     try {
-      /* 先等 eel.js 就绪，否则会误判为浏览器模式，退回会挂起的 File System Access API */
-      const ready = await waitBackend()
-      const r = ready ? await scanViaBackend() : await scanEnvironmentFromPicker()
+      if (!isBackend()) {
+        throw new Error('未连接后端：请通过 ComfyUI_KK 启动器打开本程序')
+      }
+      const r = await scanViaBackend()
       if (!r) {
         /* 用户取消 */
         onLog?.({ level: 'warning', text: '操作已取消。' })
@@ -104,12 +107,8 @@ export function AddEnvironmentModal({ open, onClose, onImport, onLog }) {
     setVerifying(true)
     onLog?.({ level: 'cmd', text: `\n>>> 校验路径：${p}` })
     try {
-      /* eel.js 异步注入，先等它就绪，否则会误判成浏览器模式而降级 */
-      const ready = await waitBackend()
-      if (!ready) {
-        onLog?.({ level: 'warning', text: '>>> 当前非后端模式，无法校验路径，可直接导入。' })
-        setResult({ ...emptyScan(), comfyRoot: p, ok: false, reason: '非后端模式下未校验' })
-        return
+      if (!isBackend()) {
+        throw new Error('未连接后端：请通过 ComfyUI_KK 启动器打开本程序')
       }
       /* call() 成功返回即校验通过；ok 在信封层，data 里没有，不可再读 scan?.ok */
       const scan = await call('env_scan_root', [p], '校验路径需要后端支持')

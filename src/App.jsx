@@ -8,13 +8,11 @@ import * as ICONS from './lib/icons'
 import { UIProvider } from './store/uiStore'
 import { SettingsProvider, useSettings } from './store/settingsStore'
 import { ToastProvider } from './components/ui/Toast'
-import { pickDirectory, pickDirectoryHandle, pickFileBackend, pickTextFile, supportsDirectoryPicker } from './lib/picker'
+import { pickDirectory, pickFile } from './lib/picker'
 import { readLS, writeLS, LS } from './lib/storage'
 import { createLogger } from './lib/logger'
 import {
-  selectRequirementsFile,
   compareSnapshots,
-  findLibInPlugins,
   previewRestoreSnapshot,
   restoreEnvSnapshot,
 } from './lib/api'
@@ -587,34 +585,37 @@ function AppShell() {
   /*
    * 环境比较工具 —— 3 步终端向导，全程无弹窗
    * 任一步返回空 → 输出「操作已取消。」
+   * 文件选择与读取均由后端完成，拿到文本后前端真实比对。
    */
   async function runCompareEnv() {
     setTerminalOpen(true)
     push({ level: 'cmd', text: '\n>>> 启动环境比较工具...' })
 
-    push({ level: 'info', text: '步骤 1/3: 请选择基准快照文件 (旧版本)...' })
-    const baseFile = await selectRequirementsFile()
-    if (!baseFile) {
-      push({ level: 'warning', text: '操作已取消。' })
-      return
-    }
-    push({ level: 'info', text: `基准文件: ${baseFile.name}` })
-
-    push({ level: 'info', text: '步骤 2/3: 请选择目标快照文件 (新版本)...' })
-    const targetFile = await selectRequirementsFile()
-    if (!targetFile) {
-      push({ level: 'warning', text: '操作已取消。' })
-      return
-    }
-    push({ level: 'info', text: `目标文件: ${targetFile.name}` })
-
-    push({ level: 'info', text: '步骤 3/3: 正在分析差异...' })
-
     try {
+      push({ level: 'info', text: '步骤 1/3: 请选择基准快照文件 (旧版本)...' })
+      const basePath = await pickFile('选择基准快照文件', [['文本文件', '*.txt'], ['所有文件', '*.*']])
+      if (!basePath) {
+        push({ level: 'warning', text: '操作已取消。' })
+        return
+      }
+      const baseText = (await call('env_read_text', [basePath], '读取快照文件需要后端支持', push)).text || ''
+      push({ level: 'info', text: `基准文件: ${basePath}` })
+
+      push({ level: 'info', text: '步骤 2/3: 请选择目标快照文件 (新版本)...' })
+      const targetPath = await pickFile('选择目标快照文件', [['文本文件', '*.txt'], ['所有文件', '*.*']])
+      if (!targetPath) {
+        push({ level: 'warning', text: '操作已取消。' })
+        return
+      }
+      const targetText = (await call('env_read_text', [targetPath], '读取快照文件需要后端支持', push)).text || ''
+      push({ level: 'info', text: `目标文件: ${targetPath}` })
+
+      push({ level: 'info', text: '步骤 3/3: 正在分析差异...' })
+
       /* 真实解析两份文件内容并比对，结果为实际差异 */
-      const diff = compareSnapshots(baseFile.text, targetFile.text)
+      const diff = compareSnapshots(baseText, targetText)
       /* 依赖文件分析头 */
-      push({ level: 'cmd', text: `\n>>> 正在分析依赖文件: ${targetFile.name}` })
+      push({ level: 'cmd', text: `\n>>> 正在分析依赖文件: ${targetPath}` })
       push({
         level: 'info',
         text: [
@@ -631,7 +632,7 @@ function AppShell() {
       push({
         level: 'success',
         text: [
-          `\n🔍 比较结果: ${baseFile.name} → ${targetFile.name}`,
+          `\n🔍 比较结果: ${basePath} → ${targetPath}`,
           ` 新增 ${diff.added.length} 个，移除 ${diff.removed.length} 个，变更 ${diff.changed.length} 个`,
         ].join('\n'),
       })
@@ -659,6 +660,7 @@ function AppShell() {
   /*
    * 查询引用插件 —— 前置校验 + 真实扫描 custom_nodes 下各插件的 requirements.txt
    * 校验：库名为空 / 尚未导入本地环境
+   * 由后端真实扫描目录，无浏览器降级。
    */
   async function runFindRefs(libName) {
     const lib = (libName || '').trim()
@@ -673,39 +675,39 @@ function AppShell() {
 
     setTerminalOpen(true)
     push({ level: 'cmd', text: `\n>>> 正在扫描引用了 [${lib}] 的插件...` })
-
-    /* 需要重新取得目录句柄才能遍历（句柄无法持久化） */
-    if (!supportsDirectoryPicker()) {
-      push({
-        level: 'warning',
-        text: '>>> 当前浏览器不支持目录遍历，无法扫描插件依赖。请使用 Chrome / Edge 打开。',
-      })
-      return
-    }
-
     push({ level: 'info', text: '>>> 请选择 ComfyUI 根目录下的 custom_nodes 文件夹...' })
-    let handle
-    try {
-      handle = await pickDirectoryHandle()
-    } catch (e) {
-      push({ level: 'error', text: `>>> 目录选择失败：${e?.message || e}` })
-      return
-    }
-    if (!handle) {
-      push({ level: 'warning', text: '操作已取消。' })
-      return
-    }
 
     try {
-      const { plugins, reason, scanned } = await findLibInPlugins(handle, lib)
-      if (plugins.length === 0) {
-        push({ level: 'info', text: `🔍 查询结果: ${reason || `未发现任何插件显式依赖 [${lib}]。`}` })
-        if (scanned) push({ level: 'info', text: ` (已扫描 ${scanned} 个插件目录)` })
+      const dir = await pickDirectory('选择 custom_nodes 目录')
+      if (!dir) {
+        push({ level: 'warning', text: '操作已取消。' })
+        return
+      }
+      const res = await call('env_list_dir', [dir, null, false], '扫描插件目录需要后端支持', push)
+      const names = (res.files || [])
+        .filter((f) => f.isDirectory !== false)
+        .map((f) => f.name || f.path?.split(/[\\/]/).pop())
+        .filter(Boolean)
+
+      /* 逐插件读取 requirements.txt 判定引用 */
+      const hits = []
+      for (const name of names) {
+        try {
+          const fr = await call('env_read_text', [`${dir}/${name}/requirements.txt`], '', push)
+          const text = fr?.text || ''
+          if (text && text.toLowerCase().includes(lib.toLowerCase())) hits.push(name)
+        } catch {
+          /* 该插件没有 requirements.txt，跳过 */
+        }
+      }
+
+      if (hits.length === 0) {
+        push({ level: 'info', text: `🔍 查询结果: 未发现任何插件显式依赖 [${lib}]。（已扫描 ${names.length} 个插件目录）` })
         return
       }
       push({
         level: 'info',
-        text: `🔍 查询结果: 发现 ${plugins.length} 个插件依赖此库:\n${plugins
+        text: `🔍 查询结果: 发现 ${hits.length} 个插件依赖此库:\n${hits
           .map((p) => ` - ${p}`)
           .join('\n')}\n(基于真实读取各插件 requirements.txt 的声明)`,
       })
@@ -764,17 +766,13 @@ function AppShell() {
 
   /*
    * 确保拿到快照文件的真实路径。
-   * 后端可用时用系统选择框取绝对路径；否则用浏览器选择并读取文本，
-   * 此时把文本连同文件名交给后端比对（后端兼容"直接传文本"）。
+   * 由后端系统选择框取绝对路径，用户取消返回 null。
    */
   async function ensureSnapshotFile() {
-    const backendPath = await pickFileBackend('选择依赖快照文件', [
+    return pickFile('选择依赖快照文件', [
       ['文本文件', '*.txt'],
       ['所有文件', '*.*'],
     ])
-    if (backendPath) return backendPath
-    const picked = await pickTextFile('.txt')
-    return picked?.text ?? null
   }
 
   /* 执行恢复快照依赖 */

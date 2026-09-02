@@ -39,7 +39,7 @@ export default function ImagePromptRevPage() {
 
   /* 选择图片：按钮与拖拽共用 */
   async function handlePickImage() {
-    const f = await pickFile('image/*')
+    const f = await pickFile('选择图片', [['图片文件', '*.png *.jpg *.jpeg *.webp *.bmp *.gif'], ['所有文件', '*.*']])
     if (f) setImage(f)
   }
 

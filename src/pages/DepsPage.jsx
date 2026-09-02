@@ -199,7 +199,7 @@ export default function DepsPage({ onAction, logs = [] }) {
               variant="glass"
               size="sm"
               onClick={async () => {
-                const f = await pickFile('.txt')
+                const f = await pickFile('选择 requirements.txt', [['文本文件', '*.txt'], ['所有文件', '*.*']])
                 if (f) setReqFile(f)
               }}
             >
@@ -271,7 +271,7 @@ export default function DepsPage({ onAction, logs = [] }) {
               variant="glass"
               size="sm"
               onClick={async () => {
-                const f = await pickFile('.whl')
+                const f = await pickFile('选择 wheel 文件', [['wheel 文件', '*.whl'], ['所有文件', '*.*']])
                 if (f) fire('installWhl', f)
               }}
             >

@@ -3,7 +3,7 @@ import { Film, Upload, Download, Scissors, VolumeX, FileVideo } from 'lucide-rea
 import { Button } from '../../components/ui/Button'
 import { SectionCard, EmptyState } from '../../components/ui/Blocks'
 import { useToast } from '../../components/ui/Toast'
-import { pickFile, pickFileBackend } from '../../lib/picker'
+import { pickFile } from '../../lib/picker'
 import { call } from '../../lib/backend'
 import { MEDIA_TABS, MEDIA_USAGE } from '../../config/tools'
 import cx from '../../lib/cx'
@@ -104,17 +104,11 @@ export default function MediaToolsPage() {
                 variant="glass"
                 size="sm"
                 onClick={async () => {
-                  /* 后端可用时取真实绝对路径，否则降级为浏览器文件名 */
-                  const backendPath = await pickFileBackend('选择媒体文件', [
+                  const p = await pickFile('选择媒体文件', [
                     ['媒体文件', '*.mp4 *.mov *.avi *.mkv *.webm *.mp3 *.wav *.flac *.m4a'],
                     ['所有文件', '*.*'],
                   ])
-                  if (backendPath !== undefined) {
-                    if (backendPath) setFile({ name: backendPath.split(/[\\/]/).pop(), path: backendPath })
-                    return
-                  }
-                  const f = await pickFile('video/*,audio/*')
-                  if (f) setFile(f)
+                  if (p) setFile(p)
                 }}
               >
                 <Upload size={13} />

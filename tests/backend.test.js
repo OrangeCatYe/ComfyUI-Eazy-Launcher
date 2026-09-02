@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { isBackend, backendMode, call, tryCall, emitLogs } from '../src/lib/backend'
+import { describe, it, expect, afterEach } from 'vitest'
+import { isBackend, call, emitLogs } from '../src/lib/backend'
 
 /*
  * 后端桥接层（Eel）
@@ -11,16 +11,14 @@ describe('backend 桥接层', () => {
     delete window.eel
   })
 
-  it('未注入 eel 时判定为 browser 模式', () => {
+  it('未注入 eel 时判定为无后端', () => {
     delete window.eel
     expect(isBackend()).toBe(false)
-    expect(backendMode()).toBe('browser')
   })
 
-  it('注入 eel 后判定为 eel 模式', () => {
+  it('注入 eel 后判定为有后端', () => {
     window.eel = {}
     expect(isBackend()).toBe(true)
-    expect(backendMode()).toBe('eel')
   })
 
   it('无后端时 call 抛出带 fallback 文案的明确错误（不假装成功）', async () => {
@@ -41,11 +39,6 @@ describe('backend 桥接层', () => {
   it('后端返回 ok:false 时抛出后端 error 文案', async () => {
     window.eel = { bad: () => Promise.resolve({ ok: false, error: '磁盘满' }) }
     await expect(call('bad')).rejects.toThrow('磁盘满')
-  })
-
-  it('tryCall 在失败时返回 null 而不抛错', async () => {
-    delete window.eel
-    await expect(tryCall('any_fn')).resolves.toBe(null)
   })
 
   it('emitLogs 把后端 log 数组逐行推到终端回调', () => {

@@ -319,7 +319,7 @@ function SoftwareTab() {
                   variant="glass"
                   size="sm"
                   onClick={async () => {
-                    const f = await pickFile('.exe')
+                    const f = await pickFile('选择 Python 解释器', [['可执行文件', '*.exe'], ['所有文件', '*.*']])
                     if (f) set('pythonPrimary', f)
                   }}
                 >
@@ -338,7 +338,7 @@ function SoftwareTab() {
                   variant="glass"
                   size="sm"
                   onClick={async () => {
-                    const f = await pickFile('.exe')
+                    const f = await pickFile('选择副 Python 解释器', [['可执行文件', '*.exe'], ['所有文件', '*.*']])
                     if (f) set('pythonSecondary', f)
                   }}
                 >

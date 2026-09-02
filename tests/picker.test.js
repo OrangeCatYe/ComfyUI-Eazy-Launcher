@@ -1,66 +1,44 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import {
-  pickFileBackend,
-  pickDirectoryBackend,
-  supportsDirectoryPicker,
-} from '../src/lib/picker'
+import { pickFile, pickDirectory } from '../src/lib/picker'
 
 /*
- * 文件/目录选择器 —— 只测可在无原生对话框下驱动的分支：
- *   后端优先路径（mock eel）与能力探测。
- * webkitdirectory 降级依赖真实 <input> 点击与窗口焦点，属人工/E2E 范畴，不在此测。
+ * 文件/目录选择器 —— 只走后端原生对话框。
+ * mock window.eel 验证转发与解析；无后端时 call 统一抛错。
  */
 
-describe('picker 后端优先路径', () => {
+describe('picker 后端选择对话框', () => {
   afterEach(() => {
     delete window.eel
-    delete window.showDirectoryPicker
   })
 
-  it('无后端时 pickFileBackend 返回 undefined（交由调用方降级）', async () => {
+  it('无后端时 pickFile 抛出明确错误', async () => {
     delete window.eel
-    expect(await pickFileBackend()).toBe(undefined)
+    await expect(pickFile()).rejects.toThrow('未连接后端')
   })
 
-  it('无后端时 pickDirectoryBackend 返回 undefined', async () => {
+  it('无后端时 pickDirectory 抛出明确错误', async () => {
     delete window.eel
-    expect(await pickDirectoryBackend()).toBe(undefined)
+    await expect(pickDirectory()).rejects.toThrow('未连接后端')
   })
 
-  it('后端返回真实路径时 pickFileBackend 得到该路径', async () => {
+  it('后端返回真实路径时 pickFile 得到该路径', async () => {
     window.eel = {
       dialog_pick_file: () => Promise.resolve({ ok: true, data: { path: 'C:/models/a.safetensors' } }),
     }
-    expect(await pickFileBackend()).toBe('C:/models/a.safetensors')
+    expect(await pickFile()).toBe('C:/models/a.safetensors')
   })
 
-  it('后端用户取消（无 path）时 pickFileBackend 返回 null', async () => {
+  it('后端用户取消（无 path）时 pickFile 返回 null', async () => {
     window.eel = {
       dialog_pick_file: () => Promise.resolve({ ok: true, data: {} }),
     }
-    expect(await pickFileBackend()).toBe(null)
+    expect(await pickFile()).toBe(null)
   })
 
-  it('后端返回真实目录路径时 pickDirectoryBackend 得到该路径', async () => {
+  it('后端返回真实目录路径时 pickDirectory 得到该路径', async () => {
     window.eel = {
       dialog_pick_dir: () => Promise.resolve({ ok: true, data: { path: 'D:/ComfyUI' } }),
     }
-    expect(await pickDirectoryBackend()).toBe('D:/ComfyUI')
-  })
-})
-
-describe('supportsDirectoryPicker 能力探测', () => {
-  afterEach(() => {
-    delete window.showDirectoryPicker
-  })
-
-  it('存在 showDirectoryPicker 时为 true', () => {
-    window.showDirectoryPicker = () => {}
-    expect(supportsDirectoryPicker()).toBe(true)
-  })
-
-  it('不存在时为 false', () => {
-    delete window.showDirectoryPicker
-    expect(supportsDirectoryPicker()).toBe(false)
+    expect(await pickDirectory()).toBe('D:/ComfyUI')
   })
 })

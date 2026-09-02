@@ -104,3 +104,25 @@ def list_dir(path, exts=None, recursive=True):
 
 def exists(path):
     return {"ok": True, "data": {"exists": bool(path) and os.path.exists(path)}, "log": []}
+
+
+READ_TEXT_MAX_BYTES = 2 * 1024 * 1024  # 2MB：requirements/配置类文本足够，防止误读大文件
+
+
+def read_text(path, encoding="utf-8"):
+    """读取文本文件内容，返回 {ok, data:{text, path}, log}。"""
+    if not path or not os.path.isfile(path):
+        return {"ok": False, "error": "文件不存在：{}".format(path), "log": []}
+    try:
+        if os.path.getsize(path) > READ_TEXT_MAX_BYTES:
+            return {"ok": False, "error": "文件过大（>2MB），拒绝读取：{}".format(path), "log": []}
+        # utf-8-sig 兼容 BOM；回退 GBK 兼容 Windows 记事本
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            with open(path, "r", encoding="gbk", errors="replace") as f:
+                text = f.read()
+        return {"ok": True, "data": {"text": text, "path": path}, "log": []}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": "{}: {}".format(type(e).__name__, e), "log": []}

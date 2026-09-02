@@ -17,7 +17,6 @@
  *   这些函数会抛出「需要后端」的明确错误，而不是假装成功。
  */
 
-import { pickTextFile } from './picker'
 import { call } from './backend'
 
 /* ================= 依赖文件解析（纯前端可真实完成） ================= */
@@ -45,13 +44,6 @@ export function parseRequirements(text) {
     map.set(name, spec)
   })
   return map
-}
-
-/* ================= 文件选择：复用统一的 picker ================= */
-
-/* 选择 requirements 文件，返回 { name, text }（取消返回 null） */
-export async function selectRequirementsFile() {
-  return pickTextFile('.txt')
 }
 
 /* ================= 环境比较（真实计算） ================= */
@@ -91,47 +83,7 @@ export function compareSnapshots(baseText, targetText) {
   }
 }
 
-/* ================= 查询引用插件（真实扫描） ================= */
-
-/*
- * 在用户选择的 ComfyUI 目录内，扫描各插件的 requirements.txt，
- * 找出声明依赖了指定库的插件。
- *
- * pluginsDirHandle 为 custom_nodes 的目录句柄（File System Access API）。
- * 没有真实目录句柄时无法扫描，返回空数组并标注原因——不编造结果。
- */
-export async function findLibInPlugins(customNodesHandle, libName) {
-  const lib = (libName || '').trim().toLowerCase()
-  if (!lib) return { plugins: [], reason: '库名为空' }
-  if (!customNodesHandle) {
-    return { plugins: [], reason: '尚未选择 ComfyUI 目录，无法扫描插件依赖' }
-  }
-
-  const hits = []
-  let scanned = 0
-
-  for await (const [name, handle] of customNodesHandle.entries()) {
-    if (handle.kind !== 'directory') continue
-    scanned++
-    try {
-      const fh = await handle.getFileHandle('requirements.txt')
-      const file = await fh.getFile()
-      const text = await file.text()
-      const deps = parseRequirements(text)
-      if (deps.has(lib)) hits.push(name)
-    } catch {
-      /* 该插件没有 requirements.txt，跳过 */
-    }
-  }
-
-  return {
-    plugins: hits.sort(),
-    reason: hits.length ? '' : `已扫描 ${scanned} 个插件，均未在其 requirements.txt 中声明 [${libName}]`,
-    scanned,
-  }
-}
-
-/* ================= 需要后端的函数（接入 Eel 后端后真实执行） ================= */
+/* ================= 需要后端的函数（Eel 后端真实执行） ================= */
 
 /*
  * 预览快照恢复差异

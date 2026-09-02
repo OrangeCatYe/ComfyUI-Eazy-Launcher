@@ -14,34 +14,6 @@ export function isBackend() {
   return typeof window !== 'undefined' && typeof window.eel !== 'undefined'
 }
 
-/*
- * 等待 Eel 就绪。
-
- * eel.js 是异步注入的，页面刚加载时 window.eel 可能还没挂上，
- * 直接判断会误判成「浏览器模式」而降级，表现为莫名其妙的失败。
- * 这里轮询等待；真正不可用（ file:// 或纯浏览器打开）则超时返回 false。
- */
-export function waitBackend(timeoutMs = 8000) {
-  if (isBackend()) return Promise.resolve(true)
-  return new Promise((resolve) => {
-    const started = Date.now()
-    const timer = setInterval(() => {
-      if (isBackend()) {
-        clearInterval(timer)
-        resolve(true)
-      } else if (Date.now() - started > timeoutMs) {
-        clearInterval(timer)
-        resolve(false)
-      }
-    }, 50)
-  })
-}
-
-/* 供 UI 判断用：当前是否运行在 Eel 桌面模式 */
-export function backendMode() {
-  return isBackend() ? 'eel' : 'browser'
-}
-
 /* 把后端返回的 log 数组推到终端 */
 export function emitLogs(result, push) {
   if (!push || !result || !Array.isArray(result.log)) return
@@ -100,16 +72,4 @@ export async function call(fn, args = [], fallback = '该操作需要后端支�
     throw new Error(err)
   }
   return res?.data ?? {}
-}
-
-/*
- * 只探测、不抛错的版本：用于"能用后端就用，不能就保持前端行为"的场景。
- * 返回 null 表示后端不可用或调用失败。
- */
-export async function tryCall(fn, args = [], push = null) {
-  try {
-    return await call(fn, args, '', push)
-  } catch {
-    return null
-  }
 }

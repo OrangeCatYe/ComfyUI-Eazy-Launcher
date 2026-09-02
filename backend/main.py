@@ -329,6 +329,11 @@ def env_list_dir(path, exts=None, recursive=True):
 def env_exists(path):
     return fs_ops.exists(path)
 
+@eel.expose
+def env_read_text(path, encoding="utf-8"):
+    """读取文本文件内容（快照比对、插件依赖扫描用）。"""
+    return fs_ops.read_text(path, encoding)
+
 
 # ---------------------------------------------------------------- 原生文件/目录选择
 
