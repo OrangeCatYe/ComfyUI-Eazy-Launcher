@@ -328,24 +328,14 @@ function SoftwareTab() {
                 </Button>
               </FieldRow>
 
-              <FieldRow label="# 运行端口">
+              <FieldRow label="运行端口" hint="ComfyUI 内核监听端口">
                 <TextInput
                   value={settings.port}
-                  onChange={(e) => set('port', e.target.value)}
+                  onChange={(e) => set('port', e.target.value.replace(/\D/g, '').slice(0, 5))}
                   placeholder="8188"
                   className="max-w-[160px]"
+                  inputMode="numeric"
                 />
-                <Button
-                  variant="glass"
-                  size="sm"
-                  onClick={async () => {
-                    const p = await pickDirectory()
-                    if (p) set('port', p)
-                  }}
-                >
-                  <FolderOpen size={13} />
-                  浏览目录
-                </Button>
               </FieldRow>
 
               <FieldRow label="共享模型目录" hint="例如 F:\ComfyUIModels">
