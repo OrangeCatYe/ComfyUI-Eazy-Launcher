@@ -160,46 +160,123 @@ def _ask_python(python, code, timeout=120):
     return run([python, "-c", code], timeout=timeout)
 
 
+# torch 版本缓存：key=解释器路径。版本号在环境不变时不会变，
+# 缓存后重复刷新不再每次 import torch（5~15 秒）。
+_TORCH_CACHE = {}
+
+# GPU 型号与显存缓存：key=解释器路径。nvidia-smi 查询本身是毫秒级，
+# 缓存 10 秒避免连续点击刷新时重复查询。
+_GPU_CACHE = {"ts": 0.0, "key": None, "gpu": "", "vram": ""}
+_GPU_CACHE_TTL = 10.0
+
+
+def _gpu_via_nvidia_smi():
+    """
+    用 nvidia-smi 拿 GPU 型号与显存（毫秒级，不加载 torch）。
+
+    返回 (gpuName, vramUsage)。驱动存在时几乎必成功；
+    无 NVIDIA 显卡/驱动时返回 ("", "")。
+    """
+    if sys.platform == "win32":
+        exe = "nvidia-smi"
+    else:
+        exe = "nvidia-smi"
+    r = run(
+        [exe, "--query-gpu=name,memory.used,memory.total",
+         "--format=csv,noheader,nounits"],
+        timeout=15,
+    )
+    if not r["ok"]:
+        return "", ""
+    line = (r["out"] or "").splitlines()[0].strip() if r["out"] else ""
+    if not line:
+        return "", ""
+    parts = [x.strip() for x in line.split(",")]
+    if len(parts) < 3:
+        return parts[0] if parts else "", ""
+    name, used, total = parts[0], parts[1], parts[2]
+    try:
+        used_f, total_f = float(used), float(total)
+        pct = (used_f / total_f * 100) if total_f > 0 else 0
+        vram = "{:.1f}/{:.1f} GB (已用 {:.0f}%)".format(
+            used_f / 1024, total_f / 1024, pct
+        )
+    except ValueError:
+        vram = ""
+    return name, vram
+
+
 def detect(comfy_root=None):
     """
     一次性探测全套环境信息。
     返回 { data:{ pythonVersion, torchVersion, gpuName, vramUsage, gitVersion, pythonPath, ... } }
+
+    性能策略：
+      - GPU 型号/显存走 nvidia-smi（毫秒级），不再用 torch 查询
+      - torch 版本按解释器路径缓存（环境不变则命中，刷新秒回）
+      - Python 版本、torch 版本、git 版本三路并行，总耗时≈最慢一路
     """
+    import concurrent.futures as _fut
+
     try:
         python = _python_of(comfy_root)
     except PythonNotFoundError:
         python = ""
 
-    pv = _ask_python(python, "import sys;print('{}.{}.{}'.format(*sys.version_info[:3]))")
-    python_version = pv["out"].splitlines()[-1].strip() if pv["ok"] else ""
+    # 并行任务 1：Python 版本
+    def _pyver():
+        if not python:
+            return ""
+        pv = _ask_python(python, "import sys;print('{}.{}.{}'.format(*sys.version_info[:3]))")
+        return pv["out"].splitlines()[-1].strip() if pv["ok"] else ""
 
-    torch = _ask_python(
-        python,
-        "import torch;print(torch.__version__);"
-        "print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')",
-        timeout=300,
-    )
-    torch_version, gpu_name = "", ""
-    if torch["ok"]:
-        lines = [x for x in torch["out"].splitlines() if x.strip()]
-        torch_version = lines[0].strip() if lines else ""
-        gpu_name = lines[1].strip() if len(lines) > 1 else ""
-
-    vram = ""
-    if gpu_name:
-        vr = _ask_python(
+    # 并行任务 2：torch 版本（带缓存）
+    def _torchver():
+        if not python:
+            return ""
+        cached = _TORCH_CACHE.get(python)
+        if cached:
+            return cached
+        t = _ask_python(
             python,
-            "import torch;"
-            "free,total=torch.cuda.mem_get_info();"
-            "print('{:.1f}/{:.1f} GB (已用 {:.0f}%)'.format("
-            "(total-free)/1024**3, total/1024**3, (total-free)/total*100))",
+            "import torch;print(torch.__version__)",
             timeout=300,
         )
-        if vr["ok"]:
-            vram = vr["out"].splitlines()[-1].strip()
+        v = t["out"].splitlines()[-1].strip() if t["ok"] and t["out"] else ""
+        if v:
+            _TORCH_CACHE[python] = v
+        return v
 
-    gr = run(["git", "--version"], timeout=60)
-    git_version = gr["out"].strip() if gr["ok"] else ""
+    # 并行任务 3：GPU 型号 + 显存（nvidia-smi，10 秒缓存）
+    def _gpu():
+        import time as _time
+        now = _time.time()
+        if _GPU_CACHE["key"] == python and now - _GPU_CACHE["ts"] < _GPU_CACHE_TTL:
+            return _GPU_CACHE["gpu"], _GPU_CACHE["vram"]
+        gpu, vram = _gpu_via_nvidia_smi()
+        _GPU_CACHE.update({"ts": now, "key": python, "gpu": gpu, "vram": vram})
+        return gpu, vram
+
+    # 并行任务 4：git 版本
+    def _gitver():
+        gr = run(["git", "--version"], timeout=60)
+        return gr["out"].strip() if gr["ok"] else ""
+
+    try:
+        with _fut.ThreadPoolExecutor(max_workers=4) as pool:
+            f_py = pool.submit(_pyver)
+            f_torch = pool.submit(_torchver)
+            f_gpu = pool.submit(_gpu)
+            f_git = pool.submit(_gitver)
+            python_version = f_py.result()
+            torch_version = f_torch.result()
+            gpu_name, vram = f_gpu.result()
+            git_version = f_git.result()
+    except Exception:  # noqa: BLE001 —— 并行框架异常时退回串行
+        python_version = _pyver()
+        torch_version = _torchver()
+        gpu_name, vram = _gpu()
+        git_version = _gitver()
 
     return {
         "ok": True,
