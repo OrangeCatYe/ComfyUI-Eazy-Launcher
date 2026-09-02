@@ -114,8 +114,8 @@ function AppShell() {
       setTerminalOpen(true)
       pushRef.current?.({ level: 'info', text: '>>> 正在探测设备信息（Python / Pytorch / GPU / 显存）...' })
       try {
-        const r = await call('env_detect', [root], '设备信息探测需要后端支持', (...a) => pushRef.current?.(...a))
-        const d = r?.data || {}
+        /* call() 契约：成功直接返回内层 data（非信封对象） */
+        const d = await call('env_detect', [root], '设备信息探测需要后端支持', (...a) => pushRef.current?.(...a))
         setEnv((prev) => {
           const next = {
             ...(prev || {}),
