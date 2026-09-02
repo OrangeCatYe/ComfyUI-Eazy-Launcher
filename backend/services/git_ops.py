@@ -36,7 +36,14 @@ def version():
 
 
 def list_versions(repo):
-    """拉取远端标签后返回版本列表（新 → 旧）。"""
+    """
+    拉取远端标签后返回版本列表（新 → 旧）。
+
+    每项为 { version, name, date }：
+      - version：标签名（如 v0.3.10）
+      - name：标签说明（annotated tag 的 message 首行，普通标签为空）
+      - date：标签指向提交的日期（YYYY-MM-DD）
+    """
     if not available():
         return {"ok": False, "error": "未检测到 git，请先安装 Git 并加入 PATH", "log": []}
     if not is_repo(repo):
@@ -46,13 +53,28 @@ def list_versions(repo):
     fr = _git(repo, "fetch", "--tags", "--force", timeout=300)
     log += _clean([fr["out"], fr["err"] if not fr["ok"] else ""])
 
-    tr = _git(repo, "tag", "--sort=-v:refname")
+    tr = _git(
+        repo,
+        "for-each-ref",
+        "--sort=-v:refname",
+        "--format=%(refname:short)%09%(contents:subject)%09%(creatordate:short)",
+        "refs/tags",
+    )
     if not tr["ok"]:
         return {"ok": False, "error": tr["err"] or "读取版本列表失败", "log": log}
 
-    tags = [t.strip() for t in tr["out"].splitlines() if t.strip()]
-    log.append("共读取到 {} 个版本标签".format(len(tags)))
-    return {"ok": True, "data": {"versions": tags}, "log": log}
+    versions = []
+    for line in tr["out"].splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 2)
+        versions.append({
+            "version": parts[0].strip(),
+            "name": (parts[1].strip() if len(parts) > 1 else ""),
+            "date": (parts[2].strip() if len(parts) > 2 else ""),
+        })
+    log.append("共读取到 {} 个版本标签".format(len(versions)))
+    return {"ok": True, "data": {"versions": versions}, "log": log}
 
 
 def current_version(repo):
