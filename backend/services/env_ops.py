@@ -12,10 +12,21 @@ from .runner import run, which
 MARKERS = ("main.py", "nodes.py", "execution.py")
 
 
+class PythonNotFoundError(Exception):
+    """无法确定 ComfyUI 使用的 Python 解释器时抛出。"""
+
+
 def _python_of(comfy_root):
-    """按优先级推断 ComfyUI 使用的 Python 解释器。"""
+    """
+    按优先级推断 ComfyUI 使用的 Python 解释器。
+
+    找不到 venv / 独立环境时抛出 PythonNotFoundError，
+    绝不静默回退到系统 Python —— 系统 Python 几乎必然缺少
+    ComfyUI 依赖（sqlalchemy/torch 等），硬跑只会得到一条
+    难以理解的 ModuleNotFoundError 崩溃栈。
+    """
     if not comfy_root:
-        return sys.executable
+        raise PythonNotFoundError("未配置 ComfyUI 根目录，无法确定 Python 解释器")
     for rel in (
         os.path.join(".venv", "Scripts", "python.exe"),
         os.path.join(".venv", "bin", "python"),
@@ -35,7 +46,10 @@ def _python_of(comfy_root):
         p = os.path.join(parent, rel)
         if os.path.exists(p):
             return p
-    return sys.executable
+    raise PythonNotFoundError(
+        "未找到可用的 Python 解释器：{} 及其上级目录中没有 .venv / venv / standalone-env / python_embeded。"
+        "请在「全局设置 → 软件设置 → 主 Python」中手动指定解释器路径。".format(comfy_root)
+    )
 
 
 def _ask_python(python, code, timeout=120):
@@ -47,7 +61,10 @@ def detect(comfy_root=None):
     一次性探测全套环境信息。
     返回 { data:{ pythonVersion, torchVersion, gpuName, vramUsage, gitVersion, pythonPath, ... } }
     """
-    python = _python_of(comfy_root)
+    try:
+        python = _python_of(comfy_root)
+    except PythonNotFoundError:
+        python = ""
 
     pv = _ask_python(python, "import sys;print('{}.{}.{}'.format(*sys.version_info[:3]))")
     python_version = pv["out"].splitlines()[-1].strip() if pv["ok"] else ""

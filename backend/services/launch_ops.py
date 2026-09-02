@@ -31,8 +31,11 @@ def start(comfy_root, python=None, port=8188, extra_args=None, on_log=None):
     if not comfy_root or not os.path.isdir(comfy_root):
         return {"ok": False, "error": "ComfyUI 目录不存在：{}".format(comfy_root), "log": []}
 
-    from .env_ops import _python_of
-    py = python or _python_of(comfy_root)
+    from .env_ops import _python_of, PythonNotFoundError
+    try:
+        py = python or _python_of(comfy_root)
+    except PythonNotFoundError as e:
+        return {"ok": False, "error": str(e), "log": []}
     if not os.path.exists(py):
         return {"ok": False, "error": "Python 解释器不存在：{}".format(py), "log": []}
 
@@ -121,7 +124,12 @@ def stop(task_id=None):
     except subprocess.TimeoutExpired:
         proc.kill()
 
-    log = ["进程已停止，PID={}".format(proc.pid)] + item["lines"][-20:]
+    """
+     * 注意：这里不拼接进程尾部日志。进程被 terminate 时尾部往往
+     * 是被杀瞬间的半截输出或异常栈（uvloop 关闭噪音等），
+     * 拼进返回值会被误读为「停止导致异常」。
+    """
+    log = ["进程已停止，PID={}".format(proc.pid)]
     with _lock:
         _procs.pop(task_id, None)
     return {"ok": True, "data": {"id": task_id, "pid": proc.pid}, "log": log}

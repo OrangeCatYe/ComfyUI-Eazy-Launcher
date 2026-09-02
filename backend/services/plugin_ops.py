@@ -112,12 +112,18 @@ def install_deps(comfy_root, plugin, python=None, index_url=None):
     if not os.path.exists(req):
         return {"ok": True, "data": {}, "log": ["该插件没有 requirements.txt，无需安装依赖"]}
 
-    py = python or _default_python(comfy_root)
+    try:
+        py = python or _default_python(comfy_root)
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e), "log": []}
     r = pip_ops.install(py, ["-r", req], index_url=index_url)
     r.setdefault("log", []).append("$ pip install -r {}".format(req))
     return r
 
 
 def _default_python(comfy_root):
-    from .env_ops import _python_of
-    return _python_of(comfy_root)
+    from .env_ops import _python_of, PythonNotFoundError
+    try:
+        return _python_of(comfy_root)
+    except PythonNotFoundError as e:
+        raise RuntimeError(str(e))
